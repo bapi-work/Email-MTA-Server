@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: cloudmta_postgres
+    environment:
+      POSTGRES_USER: cloudmta
+      POSTGRES_PASSWORD: CloudMTA2026!
+      POSTGRES_DB: cloudmta_db
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/02-schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloudmta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudmta_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: cloudmta_redis
+    command: redis-server --appendonly yes --requirepass Redis2026!
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cloudmta_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloudmta_backend
+    environment:
+      DATABASE_URL: postgresql://cloudmta:CloudMTA2026!@postgres:5432/cloudmta_db
+      REDIS_URL: redis://:Redis2026!@redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./config:/config
+    networks:
+      - cloudmta_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  smtp-server:
+    build:
+      context: ./smtp-server
+      dockerfile: Dockerfile
+    container_name: cloudmta_smtp
+    environment:
+      DATABASE_URL: postgresql://cloudmta:CloudMTA2026!@postgres:5432/cloudmta_db
+      REDIS_URL: redis://:Redis2026!@redis:6379/1
+      API_BASE_URL: http://backend:8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "25:25"      # SMTP
+      - "587:587"    # Submission (TLS)
+      - "465:465"    # SMTPS
+      - "9000:9000"  # Health check port
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./smtp-server:/app
+      - ./config:/config
+      - smtp_logs:/var/log/mailserver
+    networks:
+      - cloudmta_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cloudmta_frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_ENV: ${ENVIRONMENT:-development}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - cloudmta_network
+
+  nginx:
+    image: nginx:latest
+    container_name: cloudmta_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - cloudmta_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  smtp_logs:
+
+networks:
+  cloudmta_network:
+    driver: bridge

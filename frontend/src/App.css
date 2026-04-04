@@ -1,0 +1,125 @@
+.ant-layout-sider {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.ant-menu-dark {
+    background: transparent !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-layout-header {
+    background: #fff;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.ant-layout-footer {
+    padding: 24px 50px;
+    color: #666;
+}
+
+.content-wrapper {
+    padding: 24px;
+    background: #fff;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, rgb(45, 183, 245), rgb(37, 128, 252));
+    color: white;
+    padding: 24px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.stat-label {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* Table styling */
+.ant-table {
+    background: #fff;
+}
+
+.ant-table-thead > tr > th {
+    background: #fafafa;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+/* Form styling */
+.ant-form-item {
+    margin-bottom: 24px;
+}
+
+.ant-input,
+.ant-select {
+    border-radius: 4px;
+}
+
+/* Button styling */
+.ant-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+}
+
+.ant-btn-primary:hover {
+    background: linear-gradient(135deg, #5568d3 0%, #6a399a 100%);
+    border-color: #5568d3;
+}
+
+/* Loading spinner */
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 400px;
+}
+
+/* Card styling */
+.ant-card {
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Alert styling */
+.ant-alert {
+    margin-bottom: 16px;
+    border-radius: 4px;
+}
+
+/* Success message */
+.ant-message-success {
+    color: #52c41a;
+}
+
+/* Error message */
+.ant-message-error {
+    color: #ff4d4f;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .ant-layout-sider {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 999;
+    }
+    
+    .ant-layout {
+        margin-left: 0;
+    }
+    
+    .stat-card {
+        margin-bottom: 12px;
+    }
+}
