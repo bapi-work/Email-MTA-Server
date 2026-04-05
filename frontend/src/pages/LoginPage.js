@@ -82,7 +82,7 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                                 ]}
                             >
                                 <Input
-                                    placeholder="admin@localhost"
+                                    placeholder="admin@yourdomain.com"
                                     prefix={<MailOutlined />}
                                     size="large"
                                 />
@@ -130,8 +130,11 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                             fontSize: '12px'
                         }}>
                             <p><strong>Demo Credentials:</strong></p>
-                            <p>Email: admin@localhost</p>
+                            <p>Email: admin@yourdomain.com</p>
                             <p>Password: ChangeMe123!</p>
+                            <p style={{marginTop: '8px', fontSize: '11px', color: '#666'}}>
+                                ⚠️ Change your password immediately after first login
+                            </p>
                         </div>
                     </Card>
                 </Col>

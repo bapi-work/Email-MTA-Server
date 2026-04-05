@@ -1,6 +1,6 @@
 """Analytics router"""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database import get_db, Message, Domain, User, MessageStatus
@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 router = APIRouter()
 
-def get_current_user(request, db: Session = Depends(get_db)):
+def get_current_user(request: Request, db: Session = Depends(get_db)):
     """Get current authenticated user"""
     user_id = getattr(request.state, 'user_id', None)
     

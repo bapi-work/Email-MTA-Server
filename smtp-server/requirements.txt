@@ -1,10 +1,9 @@
 aiosmtpd==1.4.4
 psycopg2-binary==2.9.9
 redis==5.0.1
-asyncio==3.4.3
 dnspython==2.4.2
-dkimpy==1.0.7
-authres==1.2.3
+dkimpy==1.1.8
+authres==1.2.0
 cryptography==41.0.7
 bcrypt==4.1.1
 python-dotenv==1.0.0

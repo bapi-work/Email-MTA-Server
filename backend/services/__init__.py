@@ -3,7 +3,7 @@
 from datetime import datetime
 import logging
 import redis
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class HealthcheckService:
         try:
             from database import SessionLocal
             db = SessionLocal()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             db.close()
             health_status["services"]["database"] = {
                 "status": "healthy",
@@ -70,7 +70,7 @@ class AuthenticationService:
         expire = datetime.utcnow() + timedelta(minutes=expires_in)
         
         payload = {
-            "sub": user_id,
+            "sub": str(user_id),
             "email": email,
             "role": role,
             "exp": expire

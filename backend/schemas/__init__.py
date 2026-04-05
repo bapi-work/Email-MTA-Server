@@ -57,6 +57,9 @@ class DomainResponse(BaseModel):
     rate_limit_per_second: int
     daily_limit: int
     created_at: datetime
+    spf_record: Optional[str] = None
+    dkim_selector: Optional[str] = None
+    dkim_public_key: Optional[str] = None
 
     class Config:
         from_attributes = True

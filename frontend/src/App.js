@@ -1,17 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Layout, Menu, Dropdown, Button, message } from 'antd';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { Layout, Menu, Dropdown, Modal, Button, message, Spin, Badge, Tooltip } from 'antd';
 import {
     DashboardOutlined,
-    CopyOutlined,
+    GlobalOutlined,
     UserOutlined,
     MailOutlined,
     LogoutOutlined,
-    BarChartOutlined
+    BarChartOutlined,
+    SettingOutlined,
+    BellOutlined,
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
+    ClockCircleOutlined,
+    StopOutlined,
+    ApiOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
-// Pages
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import DomainsPage from './pages/DomainsPage';
@@ -19,19 +25,319 @@ import UsersPage from './pages/UsersPage';
 import QueuesPage from './pages/QueuesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
+import ProfilePage from './pages/ProfilePage';
+import SuppressionsPage from './pages/SuppressionsPage';
 
 import './App.css';
 
-const { Header, Sider, Content, Footer } = Layout;
+const { Header, Sider, Content } = Layout;
 
-// API Base URL
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 axios.defaults.baseURL = API_BASE_URL;
 
-// Route wrapper for protected routes
-const ProtectedRoute = ({ children, isAuthenticated }) => {
-    return isAuthenticated ? children : <Navigate to="/login" />;
-};
+// Session auto-logout config (in milliseconds)
+const IDLE_TIMEOUT_MS = 3 * 60 * 1000;       // 3 minutes
+const WARN_BEFORE_MS = 30 * 1000;            // warn 30 seconds before
+const IDLE_WARN_MS = IDLE_TIMEOUT_MS - WARN_BEFORE_MS;
+
+const ProtectedRoute = ({ children, isAuthenticated }) =>
+    isAuthenticated ? children : <Navigate to="/login" replace />;
+
+// Main authenticated layout with idle timer
+function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [idleWarning, setIdleWarning] = useState(false);
+    const [countdown, setCountdown] = useState(30);
+    const idleTimerRef = useRef(null);
+    const warnTimerRef = useRef(null);
+    const countdownRef = useRef(null);
+
+    const doLogout = useCallback(() => {
+        setIdleWarning(false);
+        onLogout();
+        navigate('/login', { replace: true });
+    }, [onLogout, navigate]);
+
+    const resetIdleTimer = useCallback(() => {
+        if (idleWarning) return; // don't reset during warning
+        clearTimeout(idleTimerRef.current);
+        clearTimeout(warnTimerRef.current);
+
+        warnTimerRef.current = setTimeout(() => {
+            setIdleWarning(true);
+            setCountdown(30);
+        }, IDLE_WARN_MS);
+
+        idleTimerRef.current = setTimeout(() => {
+            doLogout();
+            message.warning('You were logged out due to inactivity.');
+        }, IDLE_TIMEOUT_MS);
+    }, [idleWarning, doLogout]);
+
+    // Start/reset idle timer on user activity
+    useEffect(() => {
+        const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+        events.forEach(e => window.addEventListener(e, resetIdleTimer));
+        resetIdleTimer();
+        return () => {
+            events.forEach(e => window.removeEventListener(e, resetIdleTimer));
+            clearTimeout(idleTimerRef.current);
+            clearTimeout(warnTimerRef.current);
+        };
+    }, [resetIdleTimer]);
+
+    // Countdown tick when warning is shown
+    useEffect(() => {
+        if (idleWarning) {
+            countdownRef.current = setInterval(() => {
+                setCountdown(c => {
+                    if (c <= 1) {
+                        clearInterval(countdownRef.current);
+                        return 0;
+                    }
+                    return c - 1;
+                });
+            }, 1000);
+        } else {
+            clearInterval(countdownRef.current);
+        }
+        return () => clearInterval(countdownRef.current);
+    }, [idleWarning]);
+
+    const handleStayLoggedIn = () => {
+        setIdleWarning(false);
+        clearTimeout(idleTimerRef.current);
+        clearTimeout(warnTimerRef.current);
+        resetIdleTimer();
+    };
+
+    // Derive selected menu key from path
+    const pathToKey = {
+        '/': 'dashboard',
+        '/domains': 'domains',
+        '/users': 'users',
+        '/queues': 'queues',
+        '/analytics': 'analytics',
+        '/suppressions': 'suppressions',
+        '/settings': 'settings',
+        '/profile': 'profile'
+    };
+    const selectedKey = pathToKey[location.pathname] || 'dashboard';
+
+    const initials = user?.username
+        ? user.username.slice(0, 2).toUpperCase()
+        : user?.email?.slice(0, 2).toUpperCase() || 'AD';
+
+    const userMenuItems = [
+        {
+            key: 'user-info',
+            label: (
+                <div style={{ padding: '6px 4px' }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{user?.username || user?.email}</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>{user?.email}</div>
+                    <span className="profile-role-badge" style={{ marginTop: 6, display: 'inline-block' }}>{user?.role}</span>
+                </div>
+            ),
+            disabled: true
+        },
+        { type: 'divider' },
+        {
+            key: 'profile',
+            icon: <UserOutlined />,
+            label: 'My Profile',
+            onClick: () => navigate('/profile')
+        },
+        {
+            key: 'settings',
+            icon: <SettingOutlined />,
+            label: 'Settings',
+            onClick: () => navigate('/settings')
+        },
+        { type: 'divider' },
+        {
+            key: 'logout',
+            icon: <LogoutOutlined />,
+            label: <span style={{ color: '#ef4444' }}>Sign Out</span>,
+            onClick: doLogout,
+            danger: true
+        }
+    ];
+
+    return (
+        <Layout style={{ minHeight: '100vh' }}>
+            {/* Idle warning modal */}
+            <Modal
+                open={idleWarning}
+                closable={false}
+                maskClosable={false}
+                footer={null}
+                centered
+                width={380}
+            >
+                <div style={{ textAlign: 'center', padding: '10px 0 4px' }}>
+                    <ClockCircleOutlined style={{ fontSize: 44, color: '#ef4444', marginBottom: 14 }} />
+                    <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Session Expiring Soon</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+                        You will be automatically logged out in
+                    </div>
+                    <div className="idle-countdown">{countdown}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', marginBottom: 24 }}>seconds</div>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <Button type="primary" size="large" onClick={handleStayLoggedIn} style={{ minWidth: 140 }}>
+                            Stay Logged In
+                        </Button>
+                        <Button size="large" onClick={doLogout} danger style={{ minWidth: 100 }}>
+                            Logout
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Sider
+                className="mta-sider"
+                collapsible
+                collapsed={collapsed}
+                onCollapse={setCollapsed}
+                trigger={null}
+                width={240}
+                collapsedWidth={64}
+                style={{
+                    background: '#0f172a',
+                    position: 'fixed',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    zIndex: 200,
+                    overflow: 'hidden'
+                }}
+            >
+                {/* Logo */}
+                <div className="sidebar-logo">
+                    <div className="sidebar-logo-icon">✉</div>
+                    {!collapsed && (
+                        <div className="sidebar-logo-text">
+                            <span className="sidebar-logo-name">CloudMTA</span>
+                            <span className="sidebar-logo-sub">Admin Portal</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* Nav Menu */}
+                <Menu
+                    className="mta-menu"
+                    theme="dark"
+                    mode="inline"
+                    selectedKeys={[selectedKey]}
+                    items={[
+                        {
+                            key: 'dashboard',
+                            icon: <DashboardOutlined />,
+                            label: 'Dashboard',
+                            onClick: () => navigate('/')
+                        },
+                        {
+                            key: 'domains',
+                            icon: <GlobalOutlined />,
+                            label: 'Domains',
+                            onClick: () => navigate('/domains')
+                        },
+                        {
+                            key: 'users',
+                            icon: <UserOutlined />,
+                            label: 'Users',
+                            onClick: () => navigate('/users')
+                        },
+                        {
+                            key: 'queues',
+                            icon: <MailOutlined />,
+                            label: 'Message Queue',
+                            onClick: () => navigate('/queues')
+                        },
+                        {
+                            key: 'analytics',
+                            icon: <BarChartOutlined />,
+                            label: 'Analytics',
+                            onClick: () => navigate('/analytics')
+                        },
+                        {
+                            key: 'suppressions',
+                            icon: <StopOutlined />,
+                            label: 'Suppression List',
+                            onClick: () => navigate('/suppressions')
+                        },
+                        {
+                            key: 'settings',
+                            icon: <SettingOutlined />,
+                            label: 'Settings',
+                            onClick: () => navigate('/settings')
+                        }
+                    ]}
+                />
+
+                {/* Bottom user section */}
+                {!collapsed && (
+                    <div className="sidebar-bottom-section">
+                        <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="topLeft">
+                            <div className="sidebar-user-card">
+                                <div className="sidebar-avatar">{initials}</div>
+                                <div className="sidebar-user-info">
+                                    <div className="sidebar-user-name">{user?.username || 'Admin'}</div>
+                                    <div className="sidebar-user-role">{user?.role}</div>
+                                </div>
+                            </div>
+                        </Dropdown>
+                    </div>
+                )}
+            </Sider>
+
+            <Layout style={{ marginLeft: collapsed ? 64 : 240, transition: 'margin-left 0.2s' }}>
+                {/* Header */}
+                <Header className="mta-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <Button
+                            type="text"
+                            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                            onClick={() => setCollapsed(!collapsed)}
+                            style={{ fontSize: 16, width: 36, height: 36 }}
+                        />
+                        <span className="header-title">CloudMTA Admin Portal</span>
+                    </div>
+                    <div className="header-right">
+                        <Tooltip title="Notifications">
+                            <Button type="text" style={{ display: 'flex', alignItems: 'center' }}>
+                                <Badge count={0} size="small">
+                                    <BellOutlined style={{ fontSize: 17 }} />
+                                </Badge>
+                            </Button>
+                        </Tooltip>
+                        <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
+                            <div className="header-user-btn">
+                                <div className="header-avatar">{initials}</div>
+                                <span className="header-user-name">{user?.username || user?.email}</span>
+                            </div>
+                        </Dropdown>
+                    </div>
+                </Header>
+
+                {/* Content */}
+                <Content className="mta-content">
+                    <Routes>
+                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/domains" element={<DomainsPage />} />
+                        <Route path="/users" element={<UsersPage />} />
+                        <Route path="/queues" element={<QueuesPage />} />
+                        <Route path="/analytics" element={<AnalyticsPage />} />
+                        <Route path="/suppressions" element={<SuppressionsPage />} />
+                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/profile" element={<ProfilePage user={user} />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                </Content>
+            </Layout>
+        </Layout>
+    );
+}
 
 function App() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -39,23 +345,19 @@ function App() {
     const [loading, setLoading] = useState(true);
     const [collapsed, setCollapsed] = useState(false);
 
-    // Check authentication on mount
     useEffect(() => {
         const token = localStorage.getItem('access_token');
         if (token) {
-            // Set default authorization header
             axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-            
-            // Verify token by fetching current user
             axios.get('/api/v1/auth/me')
-                .then(response => {
-                    setUser(response.data);
+                .then(res => {
+                    setUser(res.data);
                     setIsAuthenticated(true);
                 })
                 .catch(() => {
                     localStorage.removeItem('access_token');
                     localStorage.removeItem('refresh_token');
-                    setIsAuthenticated(false);
+                    delete axios.defaults.headers.common['Authorization'];
                 })
                 .finally(() => setLoading(false));
         } else {
@@ -63,140 +365,68 @@ function App() {
         }
     }, []);
 
-    const handleLogout = () => {
+    // Axios 401 interceptor
+    useEffect(() => {
+        const interceptor = axios.interceptors.response.use(
+            res => res,
+            err => {
+                if (err.response?.status === 401) {
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('refresh_token');
+                    delete axios.defaults.headers.common['Authorization'];
+                    setIsAuthenticated(false);
+                    setUser(null);
+                }
+                return Promise.reject(err);
+            }
+        );
+        return () => axios.interceptors.response.eject(interceptor);
+    }, []);
+
+    const handleLogout = useCallback(() => {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         delete axios.defaults.headers.common['Authorization'];
         setIsAuthenticated(false);
         setUser(null);
         message.success('Logged out successfully');
-    };
-
-    const userMenu = (
-        <Menu>
-            <Menu.Item key="profile">User Profile: {user?.email}</Menu.Item>
-            <Menu.Divider />
-            <Menu.Item key="settings" icon={<UserOutlined />}>Settings</Menu.Item>
-            <Menu.Item key="logout" icon={<LogoutOutlined />} onClick={handleLogout}>
-                Logout
-            </Menu.Item>
-        </Menu>
-    );
+    }, []);
 
     if (loading) {
-        return <div style={{ padding: '50px', textAlign: 'center' }}>Loading...</div>;
-    }
-
-    if (!isAuthenticated) {
         return (
-            <Router>
-                <Routes>
-                    <Route path="/login" element={<LoginPage setIsAuthenticated={setIsAuthenticated} setUser={setUser} />} />
-                    <Route path="*" element={<Navigate to="/login" />} />
-                </Routes>
-            </Router>
+            <div className="loading-screen">
+                <Spin size="large" />
+                <span style={{ color: '#64748b', fontSize: 14 }}>Loading CloudMTA...</span>
+            </div>
         );
     }
 
     return (
         <Router>
-            <Layout style={{ minHeight: '100vh' }}>
-                <Sider 
-                    collapsible 
-                    collapsed={collapsed} 
-                    onCollapse={setCollapsed}
-                    style={{ position: 'fixed', left: 0, top: 0, bottom: 0, overflowY: 'auto' }}
-                >
-                    <div className="logo" style={{ color: 'white', fontSize: '20px', fontWeight: 'bold', padding: '16px', textAlign: 'center' }}>
-                        {!collapsed && <span>CloudMTA</span>}
-                    </div>
-                    <Menu
-                        theme="dark"
-                        mode="inline"
-                        defaultSelectedKeys={['dashboard']}
-                        items={[
-                            {
-                                key: 'dashboard',
-                                icon: <DashboardOutlined />,
-                                label: 'Dashboard',
-                                onClick: () => window.location.href = '/'
-                            },
-                            {
-                                key: 'domains',
-                                icon: <CopyOutlined />,
-                                label: 'Domains',
-                                onClick: () => window.location.href = '/domains'
-                            },
-                            {
-                                key: 'users',
-                                icon: <UserOutlined />,
-                                label: 'Users',
-                                onClick: () => window.location.href = '/users'
-                            },
-                            {
-                                key: 'queues',
-                                icon: <MailOutlined />,
-                                label: 'Message Queue',
-                                onClick: () => window.location.href = '/queues'
-                            },
-                            {
-                                key: 'analytics',
-                                icon: <BarChartOutlined />,
-                                label: 'Analytics',
-                                onClick: () => window.location.href = '/analytics'
-                            }
-                        ]}
+            {isAuthenticated ? (
+                <AuthenticatedApp
+                    user={user}
+                    onLogout={handleLogout}
+                    collapsed={collapsed}
+                    setCollapsed={setCollapsed}
+                />
+            ) : (
+                <Routes>
+                    <Route
+                        path="/login"
+                        element={
+                            <LoginPage
+                                setIsAuthenticated={setIsAuthenticated}
+                                setUser={setUser}
+                            />
+                        }
                     />
-                </Sider>
-                <Layout style={{ marginLeft: collapsed ? 80 : 200 }}>
-                    <Header style={{ background: '#fff', padding: '0 16px', boxShadow: '0 1px 4px rgba(0,0,0,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: '18px', fontWeight: '500' }}>CloudMTA Admin Portal</div>
-                        <Dropdown menu={{ items: [] }} overlay={userMenu} trigger={['click']}>
-                            <Button type="text" icon={<UserOutlined />}>{user?.email}</Button>
-                        </Dropdown>
-                    </Header>
-                    <Content style={{ margin: '24px 16px', background: '#fff', borderRadius: '2px' }}>
-                        <Routes>
-                            <Route path="/" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <DashboardPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/domains" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <DomainsPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/users" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <UsersPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/queues" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <QueuesPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/analytics" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <AnalyticsPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="/settings" element={
-                                <ProtectedRoute isAuthenticated={isAuthenticated}>
-                                    <SettingsPage />
-                                </ProtectedRoute>
-                            } />
-                            <Route path="*" element={<Navigate to="/" />} />
-                        </Routes>
-                    </Content>
-                    <Footer style={{ textAlign: 'center', background: '#f0f2f5' }}>
-                        CloudMTA &copy; 2026. Professional Email MTA Server.
-                    </Footer>
-                </Layout>
-            </Layout>
+                    <Route path="*" element={<Navigate to="/login" replace />} />
+                </Routes>
+            )}
         </Router>
     );
 }
 
 export default App;
+

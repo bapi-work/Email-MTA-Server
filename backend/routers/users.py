@@ -1,6 +1,6 @@
 """Users management router"""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import secrets
@@ -10,7 +10,7 @@ from config import settings
 
 router = APIRouter()
 
-def get_current_user(request, db: Session = Depends(get_db)):
+def get_current_user(request: Request, db: Session = Depends(get_db)):
     """Dependency to get current user"""
     user_id = getattr(request.state, 'user_id', None)
     
@@ -107,8 +107,30 @@ async def update_user(
             detail="Only admin can change user role"
         )
     
+    # Check for email uniqueness if email is being changed
+    if "email" in update_data:
+        existing_user = db.query(User).filter(
+            (User.email == update_data["email"]) & (User.id != user.id)
+        ).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+    
+    # Check for username uniqueness if username is being changed
+    if "username" in update_data:
+        existing_user = db.query(User).filter(
+            (User.username == update_data["username"]) & (User.id != user.id)
+        ).first()
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already in use"
+            )
+    
     # Update allowed fields
-    allowed_fields = ["full_name", "rate_limit_per_second"]
+    allowed_fields = ["full_name", "rate_limit_per_second", "username", "email"]
     if current_user.role == UserRole.ADMIN:
         allowed_fields.extend(["is_active", "role"])
     

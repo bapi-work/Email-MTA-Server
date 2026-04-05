@@ -2,9 +2,11 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Copy package.json
+COPY package.json ./
+
 # Install dependencies
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .

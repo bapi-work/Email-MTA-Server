@@ -264,15 +264,16 @@ class SMTPServer:
         """Create SMTP server instance"""
         loop = asyncio.get_event_loop()
         
-        smtp = CloudMTASMTP(
-            handler,
-            self.db,
-            hostname='0.0.0.0',
+        def factory():
+            return CloudMTASMTP(handler, self.db)
+        
+        server = await loop.create_server(
+            factory,
+            host='0.0.0.0',
             port=port
         )
         
-        await smtp.setup()
-        return smtp
+        return server
     
     async def stop(self):
         """Stop SMTP server"""

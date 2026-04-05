@@ -1,6 +1,6 @@
 """Database configuration and models"""
 
-from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, Float, ForeignKey, JSON, Enum, Index
+from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, Float, ForeignKey, JSON, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -60,7 +60,7 @@ class User(Base):
     username = Column(String(255), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.USER)
+    role = Column(String(50), default=UserRole.USER.value)
     full_name = Column(String(255))
     is_active = Column(Boolean, default=True)
     api_key = Column(String(255), unique=True, nullable=True)
@@ -87,7 +87,7 @@ class Domain(Base):
     id = Column(Integer, primary_key=True)
     domain_name = Column(String(255), unique=True, nullable=False)
     owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    status = Column(Enum(DomainStatus), default=DomainStatus.VERIFICATION_PENDING)
+    status = Column(String(50), default=DomainStatus.VERIFICATION_PENDING.value)
     
     # SPF Settings
     spf_record = Column(String(1000))
@@ -151,7 +151,7 @@ class Message(Base):
     headers = Column(JSON)
     body = Column(Text)
     
-    status = Column(Enum(MessageStatus), default=MessageStatus.QUEUED)
+    status = Column(String(50), default=MessageStatus.QUEUED.value)
     priority = Column(Integer, default=10)
     
     attempts = Column(Integer, default=0)
@@ -199,6 +199,86 @@ class APILog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     user = relationship("User", back_populates="api_logs")
+
+
+# ─────────────────────────────────────────────────────
+#  Routing Rules  — PowerMTA-style Virtual MTA routing
+# ─────────────────────────────────────────────────────
+class RoutingRule(Base):
+    __tablename__ = "routing_rules"
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500))
+
+    # Matching conditions (any None = match all)
+    sender_domain = Column(String(255))       # e.g. "marketing.co"
+    recipient_domain = Column(String(255))    # e.g. "gmail.com"
+    message_priority = Column(Integer)        # match priority level
+
+    # Routing actions
+    virtual_mta_name = Column(String(255))    # Named virtual MTA pool
+    bind_address = Column(String(255))        # Outbound source IP
+    queue_name = Column(String(255))          # Route to specific queue
+
+    # Per-rule limits
+    max_connections = Column(Integer, default=10)
+    rate_limit_per_second = Column(Integer, default=100)
+    retry_strategy = Column(String(50), default="exponential")  # exponential | linear | fixed
+
+    is_active = Column(Boolean, default=True)
+    priority_order = Column(Integer, default=100)  # lower = evaluated first
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
+#  Webhook Endpoints  — Event delivery (GreenArrow-style)
+# ─────────────────────────────────────────────────────
+class Webhook(Base):
+    __tablename__ = "webhooks"
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String(255), nullable=False)
+    url = Column(String(2000), nullable=False)
+
+    # Event types to fire on
+    events = Column(JSON, default=list)  # ["bounce","complaint","delivery","open","click","unsubscribe"]
+
+    secret_key = Column(String(255))             # HMAC-SHA256 signing secret
+    content_type = Column(String(100), default="application/json")
+
+    is_active = Column(Boolean, default=True)
+    last_triggered_at = Column(DateTime, nullable=True)
+    total_deliveries = Column(Integer, default=0)
+    total_failures = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
+#  Suppression List  — GreenArrow / Amazon SES style
+# ─────────────────────────────────────────────────────
+class SuppressionEntry(Base):
+    __tablename__ = "suppression_list"
+    __table_args__ = (
+        Index('idx_suppression_email', 'email'),
+        Index('idx_suppression_owner', 'owner_id'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    email = Column(String(255), nullable=False)
+    reason = Column(String(50), default="manual")   # hard_bounce | soft_bounce | complaint | spam | manual | unsubscribe
+    reason_detail = Column(Text)
+    source = Column(String(100), default="manual")  # manual | auto_bounce | fbl | api
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 # Create all tables
 Base.metadata.create_all(bind=engine)

@@ -24,6 +24,10 @@ class JWTMiddleware(BaseHTTPMiddleware):
     }
     
     async def dispatch(self, request: Request, call_next):
+        # Allow CORS preflight requests through without auth
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Check if route requires authentication
         if any(request.url.path.startswith(route) for route in self.PUBLIC_ROUTES):
             return await call_next(request)
@@ -52,7 +56,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
             )
             
             # Store user info in request state
-            request.state.user_id = payload.get("sub")
+            request.state.user_id = int(payload.get("sub"))
             request.state.user_email = payload.get("email")
             request.state.user_role = payload.get("role")
             
