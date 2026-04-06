@@ -280,5 +280,92 @@ class SuppressionEntry(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ─────────────────────────────────────────────────────
+#  IP Warmup Schedule  — SES / GreenArrow style per-IP ramp-up
+# ─────────────────────────────────────────────────────
+class IPWarmupSchedule(Base):
+    __tablename__ = "ip_warmup_schedules"
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    ip_address = Column(String(255), nullable=False)
+    start_date = Column(DateTime, default=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    # Daily limits per warmup stage (JSON: {"1": 200, "7": 500, "14": 2000, "30": 10000, "60": 0})
+    schedule = Column(JSON, default={
+        "1": 200, "3": 500, "7": 1000, "14": 5000, "30": 20000, "60": 0
+    })
+    # 0 = unlimited
+
+    today_sent = Column(Integer, default=0)
+    last_reset_date = Column(String(20))  # YYYY-MM-DD
+
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
+#  Configuration Sets  — Amazon SES style email grouping
+# ─────────────────────────────────────────────────────
+class ConfigurationSet(Base):
+    __tablename__ = "configuration_sets"
+
+    id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+
+    # Tracking overrides (null = inherit global)
+    open_tracking_enabled = Column(Boolean, nullable=True)
+    click_tracking_enabled = Column(Boolean, nullable=True)
+    sending_enabled = Column(Boolean, default=True)
+
+    # Reputation thresholds (auto-pause sending if exceeded)
+    max_bounce_rate = Column(Float, default=0.10)       # 10%
+    max_complaint_rate = Column(Float, default=0.001)   # 0.1%
+
+    # Routing overrides
+    dedicated_ips = Column(JSON, default=[])  # pin to specific IP(s)
+    virtual_mta_name = Column(String(255))
+
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
+#  Delivery Logs  — per-message SMTP delivery log entries
+# ─────────────────────────────────────────────────────
+class DeliveryLog(Base):
+    __tablename__ = "delivery_logs"
+    __table_args__ = (
+        Index('idx_delivery_log_msg', 'message_id'),
+        Index('idx_delivery_log_user', 'user_id'),
+        Index('idx_delivery_log_ts', 'created_at'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    message_id = Column(String(255))
+    from_email = Column(String(255))
+    to_email = Column(String(255))
+    domain = Column(String(255))
+    subject = Column(String(500))
+
+    event_type = Column(String(50))  # queued | attempt | sent | bounced | deferred | failed
+    smtp_code = Column(String(10))
+    smtp_message = Column(Text)
+    remote_ip = Column(String(255))
+    ip_used = Column(String(255))
+    tls_used = Column(Boolean, default=False)
+
+    duration_ms = Column(Integer)
+    attempt_number = Column(Integer, default=1)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # Create all tables
 Base.metadata.create_all(bind=engine)

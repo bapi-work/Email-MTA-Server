@@ -14,7 +14,8 @@ import {
     MenuUnfoldOutlined,
     ClockCircleOutlined,
     StopOutlined,
-    ApiOutlined
+    ApiOutlined,
+    SafetyOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -27,6 +28,7 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfilePage from './pages/ProfilePage';
 import SuppressionsPage from './pages/SuppressionsPage';
+import ReputationPage from './pages/ReputationPage';
 
 import './App.css';
 
@@ -120,6 +122,7 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
         '/queues': 'queues',
         '/analytics': 'analytics',
         '/suppressions': 'suppressions',
+        '/reputation': 'reputation',
         '/settings': 'settings',
         '/profile': 'profile'
     };
@@ -267,6 +270,12 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                             onClick: () => navigate('/suppressions')
                         },
                         {
+                            key: 'reputation',
+                            icon: <SafetyOutlined />,
+                            label: 'Reputation',
+                            onClick: () => navigate('/reputation')
+                        },
+                        {
                             key: 'settings',
                             icon: <SettingOutlined />,
                             label: 'Settings',
@@ -329,6 +338,7 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                         <Route path="/queues" element={<QueuesPage />} />
                         <Route path="/analytics" element={<AnalyticsPage />} />
                         <Route path="/suppressions" element={<SuppressionsPage />} />
+                        <Route path="/reputation" element={<ReputationPage />} />
                         <Route path="/settings" element={<SettingsPage />} />
                         <Route path="/profile" element={<ProfilePage user={user} />} />
                         <Route path="*" element={<Navigate to="/" replace />} />

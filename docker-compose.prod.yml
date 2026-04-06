@@ -1,0 +1,90 @@
+# Production overrides — use with:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   1. Set SECRET_KEY to a secure random value (python -c "import secrets; print(secrets.token_hex(32))")
+#   2. Set DOMAIN to your public hostname
+#   3. Place SSL certificate at config/ssl/server.crt and config/ssl/server.key
+#      (or use Let's Encrypt / certbot alongside nginx)
+#   4. Update CORS_ORIGINS in .env to your actual domain
+
+version: '3.8'
+
+services:
+
+  # ─── Backend: production-grade uvicorn (no --reload, multi-worker) ───
+  backend:
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 4
+      --log-level warning
+      --access-log
+      --no-use-colors
+    environment:
+      DEBUG: "false"
+      LOG_LEVEL: "WARNING"
+    ports: []           # don't expose backend port directly in production
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          memory: 256M
+    restart: unless-stopped
+
+  # ─── Frontend: production build only, no dev server ────────────────
+  frontend:
+    environment:
+      REACT_APP_ENV: production
+      # Set REACT_APP_API_URL to your public API URL if different from '/'
+    ports: []           # served exclusively through nginx
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ─── PostgreSQL: no external port exposure ───────────────────────────
+  postgres:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ─── Redis: no external port exposure ───────────────────────────────
+  redis:
+    ports: []
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ─── SMTP server constraints ─────────────────────────────────────────
+  smtp-server:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  # ─── Nginx: HTTPS termination ───────────────────────────────────────
+  nginx:
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M

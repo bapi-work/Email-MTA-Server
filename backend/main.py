@@ -12,7 +12,7 @@ from datetime import datetime
 
 from config import settings
 from database import engine, Base, get_db
-from routers import users, domains, queues, smtp, analytics, auth, suppressions
+from routers import users, domains, queues, smtp, analytics, auth, suppressions, reputation, send
 from middleware import JWTMiddleware
 from services import HealthcheckService
 
@@ -128,6 +128,18 @@ app.include_router(
     suppressions.router,
     prefix="/api/v1/suppressions",
     tags=["Suppression List"]
+)
+
+app.include_router(
+    reputation.router,
+    prefix="/api/v1/reputation",
+    tags=["Reputation Dashboard"]
+)
+
+app.include_router(
+    send.router,
+    prefix="/api/v1/send",
+    tags=["HTTP Send API"]
 )
 
 # Global exception handler

@@ -1,134 +1,206 @@
 # CloudMTA - Professional Email MTA Server
 
-A robust, feature-rich SMTP server with admin portal, API controls, and enterprise-grade security features comparable to Momentum, PowerMTA, and Halon.
+A production-ready, feature-rich SMTP server with admin portal, REST API, and enterprise-grade delivery infrastructure — with feature parity against PowerMTA, GreenArrow, and Amazon SES.
 
 ## Features
 
-- **SMTP Protocol Support**: Full RFC 5321/5322 compliance
-- **Bulk Email Services**: Support for high-volume email delivery
-- **Dual Stack Networking**: IPv4 & IPv6 with intelligent rotation
-- **Authentication & Security**:
-  - SPF (Sender Policy Framework)
-  - DKIM (DomainKeys Identified Mail)
-  - DMARC (Domain-based Message Authentication)
-- **Admin Portal**: Web-based management interface
-- **RESTful API**: Complete control via API endpoints
-- **User Management**: Multi-user support with role-based access
-- **Domain Management**: Multiple domain support with individual settings
-- **Queue Management**: Sophisticated message queuing and retry logic
-- **Rate Limiting**: Per-user, per-domain, and IP-based controls
-- **Monitoring & Analytics**: Real-time delivery tracking
-- **Docker Ready**: Complete containerization for easy deployment
+### Core Delivery
+- **SMTP Protocol**: Full RFC 5321/5322 compliance — ports 25, 587, 465
+- **Bulk Email**: High-volume delivery with queue management and retry logic
+- **Dual Stack**: IPv4 & IPv6 with intelligent rotation
+- **Email Authentication**: SPF, DKIM, DMARC checking and signing
+
+### Routing & Traffic Shaping
+- **Routing Rules**: Virtual MTA-style routing per domain/sender/IP (PowerMTA parity)
+- **ISP Traffic Shaping Profiles**: Per-ISP connection limits for Gmail, Yahoo, Outlook, Apple Mail, Comcast, and Generic
+- **IP Pool Management**: Add/remove sending IPs at runtime
+
+### Deliverability & Compliance
+- **Suppression List**: SES-style address suppression with bounce/complaint reason tracking
+- **IP Warmup Scheduler**: Automated daily send-volume ramp-up per IP (GreenArrow parity)
+- **Reputation Dashboard**: Real-time sender score (0–100), bounce/complaint rates, domain health, and smart recommendations
+- **Configuration Sets**: Group emails by use case for independent tracking (SES parity)
+
+### Webhooks & Tracking
+- **Webhooks**: Event delivery to external endpoints (send, bounce, complaint, open, click)
+- **Open Tracking**: Pixel-based email open tracking
+- **Click Tracking**: URL rewriting for click tracking
+
+### Testing & Simulation
+- **Mailbox Simulator**: Test delivery scenarios — success, bounce, complaint, block, slowdown, OOO (SES Mailbox Simulator parity)
+
+### HTTP Send API
+- **REST Send API**: Submit emails via HTTP POST — no SMTP client required (GreenArrow parity)
+- **Delivery Logs**: Per-message SMTP delivery log viewer
+
+### Admin & Management
+- **Admin Portal**: React web UI at port 80
+- **User Management**: Multi-user with role-based access and per-user API keys
+- **Domain Management**: Multiple domains with DNS verification
+- **Queue Management**: Real-time queue stats and message management
+- **Analytics**: Delivery, bounce, and complaint trend reports
+- **Settings**: 14-tab settings panel covering all configuration areas
 
 ## Quick Start
 
 ### Prerequisites
 - Docker & Docker Compose
-- Python 3.9+
-- Node.js 16+ (for frontend)
-- PostgreSQL 13+
 
 ### Installation
 
-1. Clone and navigate to project:
+1. Navigate to the project directory:
 ```bash
 cd "Email MTA Server"
 ```
 
-2. Start with Docker:
+2. Start all services:
 ```bash
 docker-compose up -d
 ```
 
 3. Access the admin portal:
 ```
-http://localhost:3000
+http://localhost
 ```
 
 Default credentials:
-- Email: `admin@localhost`
+- Email: `admin@yourdomain.com`
 - Password: `ChangeMe123!`
 
-### Manual Setup
+> **Important**: Change the default password and update `.env` secrets before exposing to the internet.
 
-**Backend:**
+### Production Deployment
+
+Use the production overrides file for multi-worker backend, hidden internal ports, and resource limits:
+
 ```bash
-cd backend
-pip install -r requirements.txt
-python main.py
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-**SMTP Server:**
-```bash
-cd smtp-server
-pip install -r requirements.txt
-python smtp_server.py
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm start
-```
-
-## API Documentation
-
-API endpoints are documented at: `http://localhost:8000/docs`
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full production checklist.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│           Admin Portal (React/Next.js)              │
-└──────────────────┬──────────────────────────────────┘
-                   │ HTTP/HTTPS
-┌──────────────────v──────────────────────────────────┐
-│     RESTful API (FastAPI) - Port 8000               │
-│  ├─ Users Management                                │
-│  ├─ Domain Management                              │
-│  ├─ Queue Management                               │
-│  └─ Analytics & Monitoring                         │
-└──────────────────┬──────────────────────────────────┘
-                   │
-        ┌──────────┼──────────┐
-        │          │          │
-   ┌────v────┐ ┌──v──────┐ ┌─v──────────┐
-   │PostgreSQL│ │Redis    │ │SMTP Handler│
-   │Database  │ │(Queue)  │ │ Port 25/587│
-   └──────────┘ └─────────┘ └────────────┘
+┌─────────────────────────────────────────────────────────┐
+│           nginx Reverse Proxy  (Port 80/443)            │
+│  Rate limiting, CORS, security headers, gzip            │
+└────────┬─────────────────────────┬───────────────────────┘
+         │ /api/*                  │ /*
+┌────────v──────────┐    ┌─────────v──────────────────────┐
+│  FastAPI Backend  │    │  React Frontend (Ant Design 5) │
+│  Port 8000        │    │  Port 3000                     │
+│  9 API routers    │    │  10 pages / 14-tab Settings    │
+└──────┬────────────┘    └────────────────────────────────┘
+       │
+  ┌────┴──────────────────┐
+  │                       │
+┌─v──────────┐    ┌───────v───────┐    ┌──────────────────┐
+│ PostgreSQL │    │ Redis         │    │  SMTP Server     │
+│ Port 5432  │    │ Port 6379     │    │  Ports 25/587/465│
+│ 9 tables   │    │ Queue/cache   │    │  aiosmtpd        │
+└────────────┘    └───────────────┘    └──────────────────┘
 ```
+
+## Comparison
+
+| Feature | CloudMTA | PowerMTA | GreenArrow | Amazon SES |
+|---|:---:|:---:|:---:|:---:|
+| Routing Rules / Virtual MTAs | ✅ | ✅ | ✅ | Partial |
+| Webhooks / Event Delivery | ✅ | ✅ | ✅ | ✅ |
+| Suppression List | ✅ | ✅ | ✅ | ✅ |
+| Reputation Dashboard | ✅ | Partial | ✅ | ✅ |
+| IP Warmup Schedule | ✅ | Manual | ✅ | ✅ |
+| ISP Traffic Shaping Profiles | ✅ | ✅ | ✅ | Partial |
+| Mailbox Simulator | ✅ | ❌ | ❌ | ✅ |
+| Configuration Sets | ✅ | ❌ | Partial | ✅ |
+| HTTP Send API (no SMTP client) | ✅ | ❌ | ✅ | ✅ |
+| Self-hosted / Open source | ✅ | ❌ | ❌ | ❌ |
+
+## API Documentation
+
+- Interactive Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- Full API reference: [docs/API.md](docs/API.md)
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Step-by-step first-use guide |
+| [docs/API.md](docs/API.md) | Complete REST API reference |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment & ops guide |
+| [docs/FEATURES_ARCHITECTURE.md](docs/FEATURES_ARCHITECTURE.md) | Feature deep-dives & architecture |
+| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Codebase structure & implementation notes |
 
 ## Configuration
 
-See `config/` directory for detailed configuration options including:
-- SMTP settings (ports, timeouts, etc.)
-- IP rotation policies
-- Authentication methods
-- Rate limiting rules
-- Database connections
+All runtime configuration is managed via the `.env` file and the Settings UI. Key variables:
+
+```env
+SECRET_KEY=your-jwt-secret
+POSTGRES_PASSWORD=your-db-password
+REDIS_PASSWORD=your-redis-password
+SMTP_HOSTNAME=mail.yourdomain.com
+OPEN_TRACKING_ENABLED=true
+CLICK_TRACKING_ENABLED=true
+IP_WARMUP_ENABLED=true
+```
 
 ## Security Considerations
 
-- All API endpoints require authentication
+- All API endpoints require JWT authentication
 - SMTP connections support TLS/STARTTLS
 - Passwords are hashed using bcrypt
-- DKIM keys are securely stored
-- Rate limiting prevents abuse
-- IP whitelisting/blacklisting available
+- Rate limiting on all API routes (nginx)
+- CORS with origin matching (no wildcard)
+- `server_tokens off`, security headers
+- Sessions auto-expire; idle auto-logout after 3 minutes
+- Change `SECRET_KEY`, `POSTGRES_PASSWORD`, and `REDIS_PASSWORD` before production use
 
 ## Directory Structure
 
 ```
 .
-├── backend/              # FastAPI application & API logic
-├── frontend/             # React admin portal
-├── smtp-server/          # SMTP server implementation
-├── database/             # Database migrations & schemas
-├── config/               # Configuration files
-├── docs/                 # Documentation
-├── docker-compose.yml    # Container orchestration
-└── README.md            # This file
+├── backend/
+│   ├── main.py               # FastAPI app, router registration
+│   ├── database.py           # SQLAlchemy models & table auto-creation
+│   ├── config.py             # Settings from .env
+│   ├── requirements.txt
+│   └── routers/
+│       ├── auth.py           # JWT login/register
+│       ├── users.py          # User CRUD, API keys
+│       ├── domains.py        # Domain CRUD, DNS verification
+│       ├── queues.py         # Queue stats & management
+│       ├── analytics.py      # Dashboard & delivery reports
+│       ├── smtp.py           # SMTP config, Routing Rules, Webhooks,
+│       │                     # Tracking, Warmup, ISP Profiles,
+│       │                     # Simulator, Config Sets, IP Pool
+│       ├── suppressions.py   # Suppression list CRUD
+│       ├── reputation.py     # Reputation scoring & recommendations
+│       └── send.py           # HTTP Send API & delivery logs
+├── frontend/
+│   └── src/
+│       ├── App.js            # Routes, nav
+│       └── pages/
+│           ├── DashboardPage.js
+│           ├── DomainsPage.js
+│           ├── UsersPage.js
+│           ├── QueuesPage.js
+│           ├── AnalyticsPage.js
+│           ├── SuppressionsPage.js
+│           ├── ReputationPage.js
+│           ├── SettingsPage.js    # 14-tab settings panel
+│           └── ProfilePage.js
+├── smtp-server/              # aiosmtpd SMTP handler
+├── config/
+│   ├── nginx.conf            # Reverse proxy, rate limiting, headers
+│   └── ssl/                  # TLS certificates (mount your own)
+├── docs/                     # Extended documentation
+├── docker-compose.yml        # Development orchestration
+├── docker-compose.prod.yml   # Production overrides
+├── .env                      # Secrets (git-ignored)
+└── README.md
 ```
 
 ## License

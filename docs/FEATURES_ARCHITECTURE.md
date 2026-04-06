@@ -90,16 +90,68 @@
 - **Failure Analysis**: Bounce and failure reasons
 - **IP Usage**: IP-specific statistics
 
-### 10. Security Features
-- **Password Hashing**: bcrypt password hashing
-- **JWT Tokens**: Secure token-based authentication
-- **Token Expiration**: Short-lived access tokens
-- **Refresh Tokens**: Long-lived refresh mechanism
-- **API Key Security**: Unique API key generation
-- **CORS**: Cross-origin request handling
-- **TLS/SSL**: End-to-end encryption
-- **SQL Injection Prevention**: Parameterized queries
-- **CSRF Protection**: Built-in security headers
+### 10. Suppression List
+- **SES-style address suppression** — block sending to bounced or complained addresses
+- **Bulk add**: upload multiple addresses via JSON
+- **Reason tracking**: `bounce`, `complaint`, `manual`, `unsubscribe`
+- **Pre-delivery check**: SMTP server checks suppression list before sending
+- **Stats API**: total counts broken down by reason
+- **Search**: look up any address instantly
+
+### 11. Routing Rules (Virtual MTAs)
+- **PowerMTA-parity**: define rules per destination domain, sender, or IP
+- **Match types**: domain, sender, IP, or wildcard
+- **Per-rule**: source IP, max connections, message rate, priority
+- **Active/inactive toggle**: enable or disable at runtime without deletion
+
+### 12. Webhooks & Event Delivery
+- **GreenArrow-parity**: HTTP POST webhook delivery for email events
+- **Events**: `send`, `bounce`, `complaint`, `delivery`, `open`, `click`
+- **HMAC signing**: optional secret-key signing of payloads
+- **Test delivery**: send a test event payload from the admin UI
+- **Active/inactive toggle**: pause webhooks without deletion
+
+### 13. Open & Click Tracking
+- **Open tracking**: 1px transparent pixel injection
+- **Click tracking**: URL rewriting through tracking domain
+- **Configurable tracking domain**: use your own subdomain
+- **Per-domain toggle**: enable/disable per sending domain
+
+### 14. IP Warmup Scheduler
+- **Automated ramp-up**: define per-IP daily send limits by day number
+- **Hourly sub-limits**: optional hourly cap alongside daily cap
+- **Multiple schedules per IP**: track multiple warmup phases
+- **Enable/disable**: pause warmup without deleting schedule
+
+### 15. ISP Traffic Shaping Profiles
+- **6 built-in ISP profiles**: Gmail, Yahoo, Outlook, Apple Mail, Comcast, Generic
+- **Per-profile settings**: max connections, messages per connection, rate (msgs/sec), retry delay
+- **Apply to routing rule**: link a profile to a specific routing rule in one click
+
+### 16. Mailbox Simulator
+- **SES Mailbox Simulator parity** — test delivery outcomes without real recipients
+- **6 scenarios**: `success`, `bounce`, `complaint`, `block`, `slowdown`, `ooo`
+- **Safe testing**: never sends real mail
+- **Recommendations**: each scenario includes suggested remediation steps
+
+### 17. Configuration Sets
+- **SES-parity**: group emails by use case (transactional, marketing, etc.)
+- **Per-set tracking**: override open/click tracking settings
+- **Webhook linkage**: route events from a config set to a specific webhook
+- **Specify at send time**: include `configuration_set` in HTTP Send API payload
+
+### 18. HTTP Send API
+- **GreenArrow-parity**: submit emails via REST POST — no SMTP client required
+- **Full headers**: from, to, cc, bcc, reply-to, subject, text, HTML
+- **Priority control**: set message delivery priority
+- **Delivery logs**: per-message SMTP log viewer
+- **Status lookup**: query delivery status by message ID
+
+### 19. Reputation Dashboard
+- **Sender score** (0–100) with letter grade
+- **Trend charts**: 7/14/30/90-day time series for bounces, complaints, delivery rate
+- **Per-domain health**: individual score breakdown per sending domain
+- **Smart recommendations**: auto-generated advice when metrics cross warning thresholds
 
 ## Architecture
 
@@ -185,13 +237,20 @@
 
 ### Database Schema
 
-Key tables:
-- `users` - User accounts and credentials
-- `domains` - Registered domains with auth settings
-- `messages` - Mail message records
-- `bounces` - Bounce notifications
-- `ip_addresses` - IP pool management
-- `api_logs` - API request logging
+All tables are auto-created at startup via SQLAlchemy `Base.metadata.create_all`:
+
+| Table | Purpose |
+|---|---|
+| `users` | Accounts, roles, API keys, rate limits |
+| `domains` | Domains with SPF/DKIM/DMARC config |
+| `messages` | Queued/sent messages with delivery status |
+| `api_logs` | API request audit log |
+| `routing_rules` | Virtual MTA-style routing rules |
+| `webhooks` | Event webhook endpoint definitions |
+| `suppression_list` | Suppressed email addresses |
+| `ip_warmup_schedules` | Per-IP daily send ramp-up schedule |
+| `configuration_sets` | SES-style email grouping |
+| `delivery_logs` | Per-message SMTP delivery log entries |
 
 ### API Endpoints Structure
 
@@ -199,13 +258,13 @@ Key tables:
 /api/v1/
 ├── auth/
 │   ├── login
+│   ├── register
 │   ├── refresh
 │   └── me
 ├── users/
 │   ├── GET / POST
 │   ├── /{id} GET PATCH DELETE
-│   ├── /{id}/api-key POST DELETE
-│   └── /{id}/domains GET
+│   └── /{id}/api-key POST DELETE
 ├── domains/
 │   ├── GET / POST
 │   ├── /{id} GET PATCH DELETE
@@ -213,17 +272,50 @@ Key tables:
 │   ├── /{id}/generate-spf
 │   └── /{id}/generate-dmarc
 ├── queues/
-│   ├── /stats GET
+│   ├── /stats
 │   ├── /messages GET
-│   ├── /messages/{id} GET
+│   ├── /messages/{id} GET DELETE
 │   ├── /messages/{id}/retry PATCH
-│   ├── /messages/{id} DELETE
-│   └── /purge POST
+│   ├── /purge POST
+│   └── /requeue-deferred POST
 ├── smtp/
 │   ├── /config GET
 │   ├── /authentication GET
 │   ├── /test-connection/{domain_id} POST
-│   └── /test-authentication/{domain_id} POST
+│   ├── /test-authentication/{domain_id} POST
+│   ├── /server-info GET
+│   ├── /ip-pool GET
+│   ├── /ip-pool/add POST
+│   ├── /ip-pool/{ip} DELETE
+│   ├── /routing-rules GET POST
+│   ├── /routing-rules/{id} PUT DELETE
+│   ├── /webhooks GET POST
+│   ├── /webhooks/{id} PUT DELETE
+│   ├── /webhooks/{id}/test POST
+│   ├── /tracking GET PUT
+│   ├── /warmup GET POST
+│   ├── /warmup/{id} PUT DELETE
+│   ├── /isp-profiles GET
+│   ├── /isp-profiles/apply POST
+│   ├── /simulator/scenarios GET
+│   ├── /simulator/test POST
+│   ├── /configuration-sets GET POST
+│   └── /configuration-sets/{id} PUT DELETE
+├── suppressions/
+│   ├── GET POST
+│   ├── /check GET
+│   ├── /stats GET
+│   ├── /{id} DELETE
+│   └── /email/{email} DELETE
+├── reputation/
+│   ├── /score GET
+│   ├── /dashboard GET
+│   ├── /recommendations GET
+│   └── /domain-health GET
+├── send/
+│   ├── POST
+│   ├── /status/{message_id} GET
+│   └── /logs GET
 └── analytics/
     ├── /dashboard GET
     ├── /delivery-by-domain GET
@@ -302,22 +394,26 @@ SMTP Client
    - DKIM key storage
    - Database backups
 
-## Comparison with Momentum, PowerMTA, Halon
+## Comparison with PowerMTA, GreenArrow, and Amazon SES
 
-| Feature | CloudMTA | Momentum | PowerMTA | Halon |
-|---------|----------|----------|----------|-------|
-| SMTP Server | ✓ | ✓ | ✓ | ✓ |
-| SPF/DKIM/DMARC | ✓ | ✓ | ✓ | ✓ |
-| IPv4/IPv6 Rotation | ✓ | ✓ | ✓ | ✓ |
-| Admin Portal | ✓ | ✓ | ✓ | ✓ |
-| RESTful API | ✓ | ✓ | ✓ | ✓ |
-| Bulk Email Support | ✓ | ✓ | ✓ | ✓ |
-| Queue Management | ✓ | ✓ | ✓ | ✓ |
-| Analytics | ✓ | ✓ | ✓ | ✓ |
-| Multi-tenant | ✓ | Limited | Limited | Limited |
-| Open Source | ✓ | ✗ | ✗ | ✗ |
-| Cloud Ready | ✓ | Limited | Limited | ✓ |
-| Docker Support | ✓ | Limited | Limited | ✓ |
+| Feature | CloudMTA | PowerMTA | GreenArrow | Amazon SES |
+|---|:---:|:---:|:---:|:---:|
+| SMTP Server (25/587/465) | ✅ | ✅ | ✅ | ✅ |
+| SPF / DKIM / DMARC | ✅ | ✅ | ✅ | ✅ |
+| IPv4/IPv6 Rotation | ✅ | ✅ | ✅ | ✅ |
+| Admin Portal | ✅ | ✅ | ✅ | ✅ |
+| REST API | ✅ | ✅ | ✅ | ✅ |
+| Routing Rules / Virtual MTAs | ✅ | ✅ | ✅ | Partial |
+| Webhooks / Event Delivery | ✅ | ✅ | ✅ | ✅ |
+| Suppression List | ✅ | ✅ | ✅ | ✅ |
+| Reputation Dashboard / VDM | ✅ | Partial | ✅ | ✅ |
+| IP Warmup Schedule | ✅ | Manual | ✅ | ✅ |
+| ISP Traffic Shaping Profiles | ✅ | ✅ | ✅ | Partial |
+| Mailbox Simulator | ✅ | ❌ | ❌ | ✅ |
+| Configuration Sets | ✅ | ❌ | Partial | ✅ |
+| HTTP Send API (no SMTP client) | ✅ | ❌ | ✅ | ✅ |
+| Self-hosted / Open-source | ✅ | ❌ | ❌ | ❌ |
+| Docker-native | ✅ | Limited | Limited | N/A |
 
 ## Performance Specifications
 
@@ -336,13 +432,4 @@ SMTP Client
 - **Database**: Connection pooling with PgBouncer
 - **Cache**: Redis clustering support
 - **Load Balancing**: Nginx, HAProxy, cloud LB support
-
-## Future Enhancements
-
-- Webhook support for bounce/delivery notifications
-- Advanced ML-based spam filtering
-- Inbound email support
-- Postfix integration modules
-- Mobile admin app
-- Advanced compliance reporting (GDPR, CAN-SPAM)
-- Third-party integrations (SendGrid, AWS SES compatibility)
+- **Production**: Use `docker-compose.prod.yml` for multi-worker backend (`--workers 4`)

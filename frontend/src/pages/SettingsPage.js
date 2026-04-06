@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Card, Form, Input, Select, Switch, Button, message, Spin, Tabs, Tag,
     Row, Col, Table, Tooltip, Alert, Divider, InputNumber, Modal, Badge,
-    Progress, Space, Checkbox
+    Progress, Space, Checkbox, DatePicker, Popconfirm, Typography, List, Statistic
 } from 'antd';
 import {
     SaveOutlined, SyncOutlined, PlusOutlined, DeleteOutlined,
@@ -10,9 +10,12 @@ import {
     ThunderboltOutlined, SafetyCertificateOutlined, GlobalOutlined,
     SettingOutlined, DatabaseOutlined, CloudOutlined, ApiOutlined,
     WarningOutlined, LoadingOutlined, CopyOutlined, ReloadOutlined,
-    MailOutlined, LockOutlined, EyeOutlined, LinkOutlined, BarChartOutlined
+    MailOutlined, LockOutlined, EyeOutlined, LinkOutlined, BarChartOutlined,
+    FireOutlined, AimOutlined, ExperimentOutlined, AppstoreOutlined,
+    RocketOutlined, BulbOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import dayjs from 'dayjs';
 
 const { Option } = Select;
 
@@ -321,9 +324,23 @@ const SettingsPage = () => {
     const [deliveryForm] = Form.useForm();
     const [bounceForm] = Form.useForm();
 
+    // — New feature state —
+    const [warmupSchedules, setWarmupSchedules] = useState([]);
+    const [warmupModal, setWarmupModal] = useState({ open: false, editing: null });
+    const [ispProfiles, setIspProfiles] = useState([]);
+    const [simulatorScenarios, setSimulatorScenarios] = useState([]);
+    const [simulatorResult, setSimulatorResult] = useState(null);
+    const [simulatorRunning, setSimulatorRunning] = useState(false);
+    const [configSets, setConfigSets] = useState([]);
+    const [configSetModal, setConfigSetModal] = useState({ open: false, editing: null });
+    const [warmupForm] = Form.useForm();
+    const [simulatorForm] = Form.useForm();
+    const [configSetForm] = Form.useForm();
+
     const fetchAll = useCallback(async () => {
         try {
-            const [srvRes, smtpRes, authRes, ipRes, delRes, bncRes, routeRes, hookRes, trackRes] = await Promise.allSettled([
+            const [srvRes, smtpRes, authRes, ipRes, delRes, bncRes, routeRes, hookRes, trackRes,
+                warmupRes, ispRes, simRes, csRes] = await Promise.allSettled([
                 axios.get('/api/v1/smtp/server-info'),
                 axios.get('/api/v1/smtp/config'),
                 axios.get('/api/v1/smtp/authentication'),
@@ -333,6 +350,10 @@ const SettingsPage = () => {
                 axios.get('/api/v1/smtp/routing-rules'),
                 axios.get('/api/v1/smtp/webhooks'),
                 axios.get('/api/v1/smtp/tracking'),
+                axios.get('/api/v1/smtp/warmup'),
+                axios.get('/api/v1/smtp/isp-profiles'),
+                axios.get('/api/v1/smtp/simulator/scenarios'),
+                axios.get('/api/v1/smtp/configuration-sets'),
             ]);
 
             if (srvRes.status === 'fulfilled') setServerInfo(srvRes.value.data);
@@ -379,6 +400,10 @@ const SettingsPage = () => {
             if (routeRes.status === 'fulfilled') setRoutingRules(routeRes.value.data || []);
             if (hookRes.status === 'fulfilled') setWebhooks(hookRes.value.data || []);
             if (trackRes.status === 'fulfilled') setTrackingConfig(trackRes.value.data);
+            if (warmupRes.status === 'fulfilled') setWarmupSchedules(warmupRes.value.data || []);
+            if (ispRes.status === 'fulfilled') setIspProfiles(ispRes.value.data?.profiles || []);
+            if (simRes.status === 'fulfilled') setSimulatorScenarios(simRes.value.data?.scenarios || []);
+            if (csRes.status === 'fulfilled') setConfigSets(csRes.value.data || []);
         } finally {
             setLoading(false);
         }
@@ -1538,6 +1563,463 @@ const SettingsPage = () => {
                             </div>
                         </div>
                     </Section>
+                </div>
+            )
+        },
+
+        // ════════════════════════
+        //  TAB 11: IP WARMUP
+        // ════════════════════════
+        {
+            key: 'warmup',
+            label: <span><RocketOutlined /> IP Warmup</span>,
+            children: (
+                <div>
+                    <Alert
+                        type="info" showIcon
+                        message="IP Warmup Schedule — SES / GreenArrow Sending Ramp-Up"
+                        description="New IPs must be warmed up gradually before sending at full volume. CloudMTA enforces daily sending limits per IP and automatically raises them according to your warmup schedule."
+                        style={{ marginBottom: 24 }}
+                    />
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                        <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => { warmupForm.resetFields(); setWarmupModal({ open: true, editing: null }); }}
+                        >
+                            Add IP Warmup Schedule
+                        </Button>
+                    </div>
+
+                    <Table
+                        dataSource={warmupSchedules}
+                        rowKey="id"
+                        size="small"
+                        pagination={false}
+                        locale={{ emptyText: 'No warmup schedules. Add one above to start ramping up a new sending IP.' }}
+                        columns={[
+                            { title: 'IP Address', dataIndex: 'ip_address', key: 'ip', render: (v) => <Tag style={{ fontFamily: 'monospace' }}>{v}</Tag> },
+                            { title: 'Days Active', dataIndex: 'days_active', key: 'days', render: (v) => `Day ${v + 1}` },
+                            {
+                                title: 'Today\'s Limit', dataIndex: 'current_daily_limit', key: 'limit',
+                                render: (v) => v === null ? <Tag color="success">Unlimited</Tag> : <Tag color="blue">{v?.toLocaleString()}/day</Tag>
+                            },
+                            { title: 'Sent Today', dataIndex: 'today_sent', key: 'sent', render: (v) => v?.toLocaleString() || 0 },
+                            {
+                                title: 'Status', dataIndex: 'is_active', key: 'status',
+                                render: (v) => <Tag color={v ? 'success' : 'default'}>{v ? 'Active' : 'Paused'}</Tag>
+                            },
+                            { title: 'Start Date', dataIndex: 'start_date', key: 'start', render: (v) => v ? new Date(v).toLocaleDateString() : '-' },
+                            {
+                                title: 'Actions', key: 'actions',
+                                render: (_, r) => (
+                                    <Space>
+                                        <Button size="small" onClick={() => {
+                                            warmupForm.setFieldsValue({
+                                                ip_address: r.ip_address,
+                                                is_active: r.is_active,
+                                                notes: r.notes,
+                                            });
+                                            setWarmupModal({ open: true, editing: r });
+                                        }}>Edit</Button>
+                                        <Popconfirm
+                                            title="Delete this warmup schedule?"
+                                            onConfirm={async () => {
+                                                await axios.delete(`/api/v1/smtp/warmup/${r.id}`);
+                                                setWarmupSchedules(p => p.filter(x => x.id !== r.id));
+                                                message.success('Schedule deleted');
+                                            }}
+                                        >
+                                            <Button size="small" danger icon={<DeleteOutlined />} />
+                                        </Popconfirm>
+                                    </Space>
+                                )
+                            },
+                        ]}
+                    />
+
+                    <Modal
+                        open={warmupModal.open}
+                        title={warmupModal.editing ? 'Edit Warmup Schedule' : 'New IP Warmup Schedule'}
+                        onCancel={() => setWarmupModal({ open: false, editing: null })}
+                        onOk={async () => {
+                            const vals = await warmupForm.validateFields();
+                            try {
+                                if (warmupModal.editing) {
+                                    await axios.put(`/api/v1/smtp/warmup/${warmupModal.editing.id}`, vals);
+                                    message.success('Schedule updated');
+                                } else {
+                                    await axios.post('/api/v1/smtp/warmup', vals);
+                                    message.success('Warmup schedule created');
+                                }
+                                setWarmupModal({ open: false, editing: null });
+                                const res = await axios.get('/api/v1/smtp/warmup');
+                                setWarmupSchedules(res.data || []);
+                            } catch (e) {
+                                message.error(e.response?.data?.detail || 'Failed to save');
+                            }
+                        }}
+                        destroyOnClose
+                    >
+                        <Form form={warmupForm} layout="vertical" style={{ marginTop: 16 }}>
+                            {!warmupModal.editing && (
+                                <>
+                                    <Form.Item label="IP Address" name="ip_address" rules={[{ required: true }]}>
+                                        <Input placeholder="203.0.113.10" />
+                                    </Form.Item>
+                                    <Form.Item label="Start Date" name="start_date" tooltip="Leave blank for today">
+                                        <Input type="date" />
+                                    </Form.Item>
+                                </>
+                            )}
+                            <Form.Item label="Active" name="is_active" valuePropName="checked" initialValue={true}>
+                                <Switch />
+                            </Form.Item>
+                            <Form.Item label="Notes" name="notes">
+                                <Input.TextArea rows={2} placeholder="Optional notes" />
+                            </Form.Item>
+                            <Alert
+                                type="info" showIcon
+                                message="Default Schedule: Day 1→200, Day 3→500, Day 7→1000, Day 14→5000, Day 30→20,000, Day 60→Unlimited"
+                                style={{ fontSize: 12 }}
+                            />
+                        </Form>
+                    </Modal>
+
+                    <Divider />
+                    <div style={{ padding: '14px 16px', background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae0ff' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#0958d9', marginBottom: 8 }}>
+                            <InfoCircleOutlined style={{ marginRight: 6 }} />Default Warmup Ramp
+                        </div>
+                        <Table
+                            size="small"
+                            pagination={false}
+                            dataSource={[
+                                { day: 'Day 1', limit: '200/day', notes: 'Initial warmup — minimal volume' },
+                                { day: 'Day 3', limit: '500/day', notes: 'Early warmup' },
+                                { day: 'Day 7', limit: '1,000/day', notes: 'Week 1 complete' },
+                                { day: 'Day 14', limit: '5,000/day', notes: 'Week 2' },
+                                { day: 'Day 30', limit: '20,000/day', notes: 'Month 1 complete' },
+                                { day: 'Day 60+', limit: 'Unlimited', notes: 'Full volume' },
+                            ]}
+                            columns={[
+                                { title: 'From', dataIndex: 'day', key: 'day' },
+                                { title: 'Daily Limit', dataIndex: 'limit', key: 'limit', render: (v) => <Tag color="blue">{v}</Tag> },
+                                { title: 'Notes', dataIndex: 'notes', key: 'notes', render: (v) => <span style={{ color: '#64748b', fontSize: 12 }}>{v}</span> },
+                            ]}
+                            rowKey="day"
+                        />
+                    </div>
+                </div>
+            )
+        },
+
+        // ════════════════════════
+        //  TAB 12: ISP PROFILES
+        // ════════════════════════
+        {
+            key: 'isp-profiles',
+            label: <span><GlobalOutlined /> ISP Profiles</span>,
+            children: (
+                <div>
+                    <Alert
+                        type="info" showIcon
+                        message="ISP Traffic Shaping Profiles — PowerMTA-style per-ISP throttling"
+                        description="Pre-built connection and rate limits for major ISPs. Applying a profile creates a Routing Rule targeting that ISP's domain with industry-recommended limits."
+                        style={{ marginBottom: 24 }}
+                    />
+                    <List
+                        dataSource={ispProfiles}
+                        renderItem={(profile) => (
+                            <List.Item
+                                key={profile.isp}
+                                actions={[
+                                    <Popconfirm
+                                        title={`Apply ${profile.name} throttle profile as a routing rule?`}
+                                        onConfirm={async () => {
+                                            try {
+                                                const res = await axios.post('/api/v1/smtp/isp-profiles/apply', { isp: profile.isp });
+                                                message.success(`Profile applied — Routing Rule #${res.data.routing_rule_id} created`);
+                                                const rr = await axios.get('/api/v1/smtp/routing-rules');
+                                                setRoutingRules(rr.data || []);
+                                            } catch (e) {
+                                                message.error(e.response?.data?.detail || 'Failed');
+                                            }
+                                        }}
+                                    >
+                                        <Button type="primary" size="small" icon={<CheckCircleOutlined />}>Apply</Button>
+                                    </Popconfirm>
+                                ]}
+                            >
+                                <List.Item.Meta
+                                    avatar={<div style={{ width: 36, height: 36, borderRadius: 8, background: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1677ff' }}><GlobalOutlined /></div>}
+                                    title={<span style={{ fontWeight: 600 }}>{profile.name}</span>}
+                                    description={
+                                        <div>
+                                            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>{profile.description}</div>
+                                            <Space wrap>
+                                                <Tag>Max Connections: {profile.max_connections}</Tag>
+                                                <Tag>Rate: {profile.rate_limit_per_second} msg/s</Tag>
+                                                <Tag>Strategy: {profile.retry_strategy}</Tag>
+                                            </Space>
+                                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>{profile.notes}</div>
+                                        </div>
+                                    }
+                                />
+                            </List.Item>
+                        )}
+                        locale={{ emptyText: 'No ISP profiles available' }}
+                    />
+                </div>
+            )
+        },
+
+        // ════════════════════════
+        //  TAB 13: MAILBOX SIMULATOR
+        // ════════════════════════
+        {
+            key: 'simulator',
+            label: <span><ExperimentOutlined /> Simulator</span>,
+            children: (
+                <div>
+                    <Alert
+                        type="info" showIcon
+                        message="Mailbox Simulator — Amazon SES Mailbox Simulator equivalent"
+                        description="Test your sending pipeline without sending to real addresses. Simulate delivery, bounces, complaints, and out-of-office responses."
+                        style={{ marginBottom: 24 }}
+                    />
+                    <Row gutter={[16, 16]}>
+                        <Col xs={24} md={10}>
+                            <Card title="Run Simulation" bordered={false}>
+                                <Form form={simulatorForm} layout="vertical">
+                                    <Form.Item label="From Email" name="from_email" rules={[{ required: true, type: 'email' }]}>
+                                        <Input placeholder="sender@yourdomain.com" />
+                                    </Form.Item>
+                                    <Form.Item label="Scenario" name="scenario" rules={[{ required: true }]}>
+                                        <Select placeholder="Choose a scenario">
+                                            {simulatorScenarios.map(s => (
+                                                <Select.Option key={s.id} value={s.id}>
+                                                    {s.id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    </Form.Item>
+                                    <Button
+                                        type="primary"
+                                        icon={<AimOutlined />}
+                                        loading={simulatorRunning}
+                                        onClick={async () => {
+                                            const vals = await simulatorForm.validateFields();
+                                            setSimulatorRunning(true);
+                                            try {
+                                                const res = await axios.post('/api/v1/smtp/simulator/test', vals);
+                                                setSimulatorResult(res.data);
+                                            } catch (e) {
+                                                message.error(e.response?.data?.detail || 'Simulation failed');
+                                            } finally {
+                                                setSimulatorRunning(false);
+                                            }
+                                        }}
+                                        block
+                                    >
+                                        Run Simulation
+                                    </Button>
+                                </Form>
+                            </Card>
+                        </Col>
+                        <Col xs={24} md={14}>
+                            {simulatorResult ? (
+                                <Card
+                                    title={<span><ExperimentOutlined style={{ marginRight: 6 }} />Simulation Result</span>}
+                                    bordered={false}
+                                    extra={
+                                        <Tag color={
+                                            simulatorResult.expected_final_status === 'sent' ? 'success' :
+                                            simulatorResult.expected_final_status === 'bounced' ? 'error' :
+                                            simulatorResult.expected_final_status === 'deferred' ? 'warning' : 'default'
+                                        }>{simulatorResult.expected_final_status?.toUpperCase()}</Tag>
+                                    }
+                                >
+                                    <div style={{ fontFamily: 'monospace', fontSize: 12, background: '#0f172a', color: '#e2e8f0', borderRadius: 8, padding: 14 }}>
+                                        <div><span style={{ color: '#94a3b8' }}>Message-ID: </span>{simulatorResult.simulation_id}</div>
+                                        <div><span style={{ color: '#94a3b8' }}>From: </span>{simulatorResult.from_email}</div>
+                                        <div><span style={{ color: '#94a3b8' }}>To: </span>{simulatorResult.to_email}</div>
+                                        <div><span style={{ color: '#94a3b8' }}>SMTP Response: </span><span style={{ color: '#4ade80' }}>{simulatorResult.simulated_smtp_response}</span></div>
+                                        <div><span style={{ color: '#94a3b8' }}>Processing: </span>{simulatorResult.processing_time_ms}ms</div>
+                                        <div><span style={{ color: '#94a3b8' }}>DKIM: </span>{simulatorResult.dkim_signed ? '✓ Signed' : '✗ Unsigned'}</div>
+                                        <div><span style={{ color: '#94a3b8' }}>SPF: </span>{simulatorResult.spf_pass ? '✓ Pass' : '✗ Fail'}</div>
+                                        <div><span style={{ color: '#94a3b8' }}>DMARC: </span>{simulatorResult.dmarc_pass ? '✓ Pass' : '✗ Fail'}</div>
+                                    </div>
+                                    {simulatorResult.recommendations?.length > 0 && (
+                                        <Alert
+                                            type="warning"
+                                            style={{ marginTop: 12 }}
+                                            message="Recommendations"
+                                            description={<ul style={{ margin: 0, paddingLeft: 16 }}>{simulatorResult.recommendations.map((r, i) => <li key={i} style={{ fontSize: 12 }}>{r}</li>)}</ul>}
+                                        />
+                                    )}
+                                </Card>
+                            ) : (
+                                <Card bordered={false}>
+                                    <List
+                                        dataSource={simulatorScenarios}
+                                        renderItem={(s) => (
+                                            <List.Item key={s.id}>
+                                                <List.Item.Meta
+                                                    avatar={<Tag>{s.id}</Tag>}
+                                                    title={s.id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                                    description={<span style={{ fontSize: 12, color: '#64748b' }}>{s.description}</span>}
+                                                />
+                                            </List.Item>
+                                        )}
+                                    />
+                                </Card>
+                            )}
+                        </Col>
+                    </Row>
+                </div>
+            )
+        },
+
+        // ════════════════════════
+        //  TAB 14: CONFIGURATION SETS
+        // ════════════════════════
+        {
+            key: 'config-sets',
+            label: <span><AppstoreOutlined /> Config Sets</span>,
+            children: (
+                <div>
+                    <Alert
+                        type="info" showIcon
+                        message="Configuration Sets — Amazon SES-style email grouping"
+                        description="Group your emails by category (e.g. transactional, marketing) and apply per-set tracking, routing, and reputation thresholds. Reference a set by name in the X-Configuration-Set header or HTTP Send API."
+                        style={{ marginBottom: 24 }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                        <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => { configSetForm.resetFields(); setConfigSetModal({ open: true, editing: null }); }}
+                        >
+                            New Configuration Set
+                        </Button>
+                    </div>
+                    <Table
+                        dataSource={configSets}
+                        rowKey="id"
+                        size="small"
+                        pagination={false}
+                        locale={{ emptyText: 'No configuration sets. Create one to group emails by type or campaign.' }}
+                        columns={[
+                            { title: 'Name', dataIndex: 'name', key: 'name', render: (v) => <strong>{v}</strong> },
+                            { title: 'Description', dataIndex: 'description', key: 'desc', render: (v) => <span style={{ color: '#64748b', fontSize: 12 }}>{v || '—'}</span> },
+                            {
+                                title: 'Open Track', dataIndex: 'open_tracking_enabled', key: 'open',
+                                render: (v) => v === null ? <Tag>Inherit</Tag> : <Tag color={v ? 'success' : 'default'}>{v ? 'On' : 'Off'}</Tag>
+                            },
+                            {
+                                title: 'Click Track', dataIndex: 'click_tracking_enabled', key: 'click',
+                                render: (v) => v === null ? <Tag>Inherit</Tag> : <Tag color={v ? 'success' : 'default'}>{v ? 'On' : 'Off'}</Tag>
+                            },
+                            {
+                                title: 'Max Bounce', dataIndex: 'max_bounce_rate', key: 'bounce',
+                                render: (v) => <Tag color="orange">{(v * 100).toFixed(1)}%</Tag>
+                            },
+                            {
+                                title: 'Sending', dataIndex: 'sending_enabled', key: 'sending',
+                                render: (v) => <Tag color={v ? 'success' : 'error'}>{v ? 'Enabled' : 'Paused'}</Tag>
+                            },
+                            {
+                                title: 'Actions', key: 'actions',
+                                render: (_, r) => (
+                                    <Space>
+                                        <Button size="small" onClick={() => {
+                                            configSetForm.setFieldsValue(r);
+                                            setConfigSetModal({ open: true, editing: r });
+                                        }}>Edit</Button>
+                                        <Popconfirm
+                                            title="Delete this configuration set?"
+                                            onConfirm={async () => {
+                                                await axios.delete(`/api/v1/smtp/configuration-sets/${r.id}`);
+                                                setConfigSets(p => p.filter(x => x.id !== r.id));
+                                                message.success('Configuration set deleted');
+                                            }}
+                                        >
+                                            <Button size="small" danger icon={<DeleteOutlined />} />
+                                        </Popconfirm>
+                                    </Space>
+                                )
+                            },
+                        ]}
+                    />
+
+                    <Modal
+                        open={configSetModal.open}
+                        title={configSetModal.editing ? 'Edit Configuration Set' : 'New Configuration Set'}
+                        onCancel={() => setConfigSetModal({ open: false, editing: null })}
+                        width={560}
+                        onOk={async () => {
+                            const vals = await configSetForm.validateFields();
+                            try {
+                                if (configSetModal.editing) {
+                                    await axios.put(`/api/v1/smtp/configuration-sets/${configSetModal.editing.id}`, vals);
+                                    message.success('Updated');
+                                } else {
+                                    await axios.post('/api/v1/smtp/configuration-sets', vals);
+                                    message.success('Configuration set created');
+                                }
+                                setConfigSetModal({ open: false, editing: null });
+                                const res = await axios.get('/api/v1/smtp/configuration-sets');
+                                setConfigSets(res.data || []);
+                            } catch (e) {
+                                message.error(e.response?.data?.detail || 'Failed to save');
+                            }
+                        }}
+                        destroyOnClose
+                    >
+                        <Form form={configSetForm} layout="vertical" style={{ marginTop: 16 }}>
+                            <Form.Item label="Name" name="name" rules={[{ required: true }]}>
+                                <Input placeholder="transactional" />
+                            </Form.Item>
+                            <Form.Item label="Description" name="description">
+                                <Input placeholder="Transactional emails — receipts, password resets, etc." />
+                            </Form.Item>
+                            <Row gutter={12}>
+                                <Col span={12}>
+                                    <Form.Item label="Open Tracking" name="open_tracking_enabled" tooltip="null = inherit global setting">
+                                        <Select allowClear placeholder="Inherit global">
+                                            <Select.Option value={true}>Enabled</Select.Option>
+                                            <Select.Option value={false}>Disabled</Select.Option>
+                                        </Select>
+                                    </Form.Item>
+                                </Col>
+                                <Col span={12}>
+                                    <Form.Item label="Click Tracking" name="click_tracking_enabled">
+                                        <Select allowClear placeholder="Inherit global">
+                                            <Select.Option value={true}>Enabled</Select.Option>
+                                            <Select.Option value={false}>Disabled</Select.Option>
+                                        </Select>
+                                    </Form.Item>
+                                </Col>
+                            </Row>
+                            <Row gutter={12}>
+                                <Col span={12}>
+                                    <Form.Item label="Max Bounce Rate" name="max_bounce_rate" initialValue={0.10} tooltip="Auto-pause sending when exceeded">
+                                        <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} formatter={v => `${(v * 100).toFixed(1)}%`} parser={(v) => parseFloat(v) / 100} />
+                                    </Form.Item>
+                                </Col>
+                                <Col span={12}>
+                                    <Form.Item label="Max Complaint Rate" name="max_complaint_rate" initialValue={0.001}>
+                                        <InputNumber min={0} max={0.1} step={0.0001} style={{ width: '100%' }} formatter={v => `${(v * 100).toFixed(3)}%`} parser={(v) => parseFloat(v) / 100} />
+                                    </Form.Item>
+                                </Col>
+                            </Row>
+                            <Form.Item label="Sending Enabled" name="sending_enabled" valuePropName="checked" initialValue={true}>
+                                <Switch />
+                            </Form.Item>
+                        </Form>
+                    </Modal>
                 </div>
             )
         }

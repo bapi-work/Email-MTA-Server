@@ -68,11 +68,19 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     
+    # Email Tracking (GreenArrow / SES-style)
+    OPEN_TRACKING_ENABLED: bool = bool(int(os.getenv("OPEN_TRACKING_ENABLED", "0")))
+    CLICK_TRACKING_ENABLED: bool = bool(int(os.getenv("CLICK_TRACKING_ENABLED", "0")))
+    TRACKING_DOMAIN: str = os.getenv("TRACKING_DOMAIN", "")
+
+    # IP Warmup (SES / GreenArrow)
+    IP_WARMUP_ENABLED: bool = bool(int(os.getenv("IP_WARMUP_ENABLED", "1")))
+
     # Features
     BULK_EMAIL_ENABLED: bool = True
     DOMAIN_MANAGEMENT_ENABLED: bool = True
     API_ACCESS_CONTROL_ENABLED: bool = True
-    
+
     class Config:
         env_file = ".env"
         case_sensitive = True

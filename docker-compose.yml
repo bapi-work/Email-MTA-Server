@@ -14,12 +14,13 @@ services:
       - ./database/schema.sql:/docker-entrypoint-initdb.d/00-schema.sql
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
     ports:
-      - "5432:5432"
+      - "5432:5432"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cloudmta"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - cloudmta_network
 
@@ -30,12 +31,13 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - "6379:6379"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD", "redis-cli", "-a", "Redis2026!", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - cloudmta_network
 
@@ -62,6 +64,7 @@ services:
       - ./config:/config
     networks:
       - cloudmta_network
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -80,8 +83,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "25:25"      # SMTP
-      - "587:587"    # Submission (TLS)
-      - "465:465"    # SMTPS
+      - "587:587"    # Submission (STARTTLS)
+      - "465:465"    # SMTPS (SSL)
       - "9000:9000"  # Health check port
     depends_on:
       postgres:
@@ -96,9 +99,10 @@ services:
       - smtp_logs:/var/log/mailserver
     networks:
       - cloudmta_network
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
-      interval: 10s
+      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost', 25)); s.close()\" || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 5
 
@@ -116,6 +120,12 @@ services:
       - backend
     networks:
       - cloudmta_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   nginx:
     image: nginx:latest
@@ -131,6 +141,12 @@ services:
       - frontend
     networks:
       - cloudmta_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   postgres_data:

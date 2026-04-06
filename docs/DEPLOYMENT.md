@@ -41,11 +41,40 @@ Open your browser and navigate to:
 4. **Default Credentials**
 
 ```
-Email: admin@localhost
+Email: admin@yourdomain.com
 Password: ChangeMe123!
 ```
 
+> Change the default password immediately after first login.
+
 ## Production Deployment
+
+### Using docker-compose.prod.yml
+
+A production overrides file is included. It enables:
+- 4-worker uvicorn backend (no `--reload`)
+- Internal ports hidden (postgres, redis, frontend not exposed on host)
+- Resource limits on all services
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Pre-Flight Checklist
+
+Before going live, complete all of the following in `.env`:
+
+- [ ] `SECRET_KEY` — generate a new random 64-char secret
+- [ ] `POSTGRES_PASSWORD` — change from default
+- [ ] `REDIS_PASSWORD` — change from default (`Redis2026!` is the dev default)
+- [ ] `SMTP_HOSTNAME` — set to your actual mail server FQDN
+- [ ] `ENVIRONMENT=production`
+- [ ] `DEBUG=false`
+- [ ] `LOG_LEVEL=WARNING`
+- [ ] Copy real TLS certificates to `config/ssl/cert.pem` and `config/ssl/key.pem`
+- [ ] Change admin account password after first login
+- [ ] Set `OPEN_TRACKING_ENABLED` and `CLICK_TRACKING_ENABLED` as needed
+- [ ] Set `TRACKING_DOMAIN` to your tracking subdomain
 
 ### Environment Configuration
 
@@ -98,6 +127,8 @@ docker exec cloudmta_postgres pg_dump -U cloudmta cloudmta_db > backup.sql
 docker exec -i cloudmta_postgres psql -U cloudmta cloudmta_db < backup.sql
 ```
 
+> Tables are auto-created by SQLAlchemy at startup. No migration tool is required.
+
 ### Redis Backup
 
 ```bash
@@ -135,11 +166,10 @@ pip install -r requirements.txt
 
 # Set environment variables
 export DATABASE_URL="postgresql://user:password@localhost/cloudmta_db"
-export REDIS_URL="redis://localhost:6379/0"
+export REDIS_URL="redis://:yourpassword@localhost:6379/0"
 export SECRET_KEY="your-secret-key"
 
-# Run migrations
-python -m alembic upgrade head
+# Tables are auto-created at startup — no migration step needed
 
 # Start the API server
 uvicorn main:app --host 0.0.0.0 --port 8000
@@ -197,7 +227,7 @@ docker exec cloudmta_postgres pg_isready -U cloudmta
 ### Redis Health Check
 
 ```bash
-docker exec cloudmta_redis redis-cli ping
+docker exec cloudmta_redis redis-cli -a YOUR_REDIS_PASSWORD --no-auth-warning ping
 ```
 
 ### SMTP Health Check
@@ -341,33 +371,25 @@ RATE_LIMIT_PER_SECOND=1000
    - Implement rate limiting
    - Monitor for suspicious activity
 
-## Updates & Maintenance
-
-### Updating CloudMTA
+### Updates & Maintenance
 
 ```bash
-# Pull latest changes
-git pull origin main
+# Rebuild containers with latest code
+docker-compose up -d --build
 
-# Rebuild containers
-docker-compose build
+# View logs
+docker-compose logs -f backend
 
-# Restart services
-docker-compose up -d
+# Restart a single service
+docker-compose restart backend
 ```
 
-### Database Migrations
-
-Migrations are run automatically on startup. To run manually:
-
-```bash
-docker-compose exec backend alembic upgrade head
-```
+> Database tables are auto-created by SQLAlchemy on startup. No manual migration step is ever required.
 
 ## Support & Documentation
 
-- API Documentation: http://localhost:8000/docs
-- Admin Portal: http://localhost:3000
+- Interactive API docs: http://localhost:8000/docs
+- Admin Portal: http://localhost
 - Full documentation: See `docs/` directory
 
 ## License

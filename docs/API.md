@@ -15,7 +15,7 @@ Authorization: Bearer <access_token>
 Request body:
 ```json
 {
-  "email": "admin@localhost",
+  "email": "admin@yourdomain.com",
   "password": "ChangeMe123!"
 }
 ```
@@ -365,3 +365,345 @@ Rate limit information is returned in response headers:
 - `X-RateLimit-Limit`: Maximum requests allowed
 - `X-RateLimit-Remaining`: Requests remaining
 - `X-RateLimit-Reset`: Unix timestamp when limit resets
+
+---
+
+## Suppression List API
+
+Base path: `/api/v1/suppressions`
+
+### List Suppressions
+**GET** `/api/v1/suppressions`
+
+Query Parameters:
+- `skip` (int): Default 0
+- `limit` (int): Default 50, max 500
+- `reason` (str): Filter by reason (`bounce`, `complaint`, `manual`, `unsubscribe`)
+- `search` (str): Search by email
+
+### Add Suppressions (Bulk)
+**POST** `/api/v1/suppressions`
+
+Request body:
+```json
+{
+  "addresses": [
+    {
+      "email": "bounce@example.com",
+      "reason": "bounce",
+      "notes": "Hard bounce on 2026-04-04"
+    }
+  ]
+}
+```
+
+### Check if Suppressed
+**GET** `/api/v1/suppressions/check?email=user@example.com`
+
+Response:
+```json
+{
+  "email": "user@example.com",
+  "suppressed": true,
+  "reason": "bounce",
+  "created_at": "2026-04-04T10:00:00Z"
+}
+```
+
+### Get Suppression Stats
+**GET** `/api/v1/suppressions/stats`
+
+Response:
+```json
+{
+  "total": 1520,
+  "bounce": 1100,
+  "complaint": 80,
+  "manual": 320,
+  "unsubscribe": 20
+}
+```
+
+### Delete Suppression by ID
+**DELETE** `/api/v1/suppressions/{id}`
+
+### Delete Suppression by Email
+**DELETE** `/api/v1/suppressions/email/{email}`
+
+---
+
+## Reputation API
+
+Base path: `/api/v1/reputation`
+
+### Get Reputation Score
+**GET** `/api/v1/reputation/score?days=7`
+
+Response:
+```json
+{
+  "score": 87,
+  "grade": "B+",
+  "period_days": 7,
+  "total_sent": 45000,
+  "bounce_rate": 0.012,
+  "complaint_rate": 0.0008,
+  "delivery_rate": 0.988,
+  "breakdown": {
+    "delivery_score": 92,
+    "bounce_score": 85,
+    "complaint_score": 95,
+    "engagement_score": 78
+  }
+}
+```
+
+### Get Reputation Dashboard (Trends)
+**GET** `/api/v1/reputation/dashboard?days=30`
+
+Response: Daily time-series for score, bounce rate, complaint rate, and delivery rate.
+
+### Get Smart Recommendations
+**GET** `/api/v1/reputation/recommendations`
+
+Response:
+```json
+{
+  "recommendations": [
+    {
+      "priority": "high",
+      "category": "bounce",
+      "title": "Bounce rate elevated",
+      "message": "Bounce rate is 3.5% — above 2% threshold. Clean your list.",
+      "action": "Review suppression list"
+    }
+  ]
+}
+```
+
+### Get Per-Domain Health
+**GET** `/api/v1/reputation/domain-health`
+
+Response: Array of domain objects with individual bounce/complaint/score metrics.
+
+---
+
+## HTTP Send API
+
+Base path: `/api/v1/send`
+
+### Send Email via REST
+**POST** `/api/v1/send`
+
+Request body:
+```json
+{
+  "from_email": "sender@yourdomain.com",
+  "from_name": "Sender Name",
+  "to": ["recipient@example.com"],
+  "cc": [],
+  "bcc": [],
+  "reply_to": "replies@yourdomain.com",
+  "subject": "Hello from CloudMTA",
+  "text_body": "Plain text content",
+  "html_body": "<p>HTML content</p>",
+  "priority": 5,
+  "configuration_set": "transactional",
+  "tags": {"campaign": "welcome", "env": "prod"}
+}
+```
+
+Response:
+```json
+{
+  "message_id": "uuid",
+  "status": "queued",
+  "queued_at": "2026-04-04T12:34:56Z"
+}
+```
+
+### Get Message Delivery Status
+**GET** `/api/v1/send/status/{message_id}`
+
+Response: Full message status including SMTP response codes and delivery timestamps.
+
+### Get Delivery Logs
+**GET** `/api/v1/send/logs`
+
+Query Parameters:
+- `skip` (int): Default 0
+- `limit` (int): Default 50
+- `message_id` (str): Filter by message ID
+- `status` (str): Filter by status
+
+---
+
+## SMTP Extended API
+
+### Routing Rules
+
+**GET** `/api/v1/smtp/routing-rules` — list all rules
+
+**POST** `/api/v1/smtp/routing-rules` — create rule
+```json
+{
+  "name": "Gmail Route",
+  "match_type": "domain",
+  "match_value": "gmail.com",
+  "source_ip": "192.0.2.10",
+  "priority": 10,
+  "max_connections": 5,
+  "notes": "Gmail ISP limits"
+}
+```
+
+**PUT** `/api/v1/smtp/routing-rules/{id}` — update rule
+
+**DELETE** `/api/v1/smtp/routing-rules/{id}` — delete rule
+
+---
+
+### Webhooks
+
+**GET** `/api/v1/smtp/webhooks` — list all webhooks
+
+**POST** `/api/v1/smtp/webhooks` — create webhook
+```json
+{
+  "name": "My Webhook",
+  "url": "https://example.com/webhook",
+  "events": ["bounce", "complaint", "delivery"],
+  "secret": "optional-hmac-secret",
+  "active": true
+}
+```
+
+**PUT** `/api/v1/smtp/webhooks/{id}` — update webhook
+
+**DELETE** `/api/v1/smtp/webhooks/{id}` — delete webhook
+
+**POST** `/api/v1/smtp/webhooks/{id}/test` — send a test event payload
+
+---
+
+### Tracking
+
+**GET** `/api/v1/smtp/tracking` — get current tracking config
+```json
+{
+  "open_tracking": true,
+  "click_tracking": true,
+  "tracking_domain": "track.yourdomain.com"
+}
+```
+
+**PUT** `/api/v1/smtp/tracking` — update tracking settings
+
+---
+
+### IP Warmup Schedules
+
+**GET** `/api/v1/smtp/warmup` — list all warmup schedules
+
+**POST** `/api/v1/smtp/warmup` — create schedule
+```json
+{
+  "ip_address": "192.0.2.20",
+  "day_number": 1,
+  "daily_limit": 500,
+  "hourly_limit": 50,
+  "notes": "New IP warmup Day 1"
+}
+```
+
+**PUT** `/api/v1/smtp/warmup/{id}` — update schedule
+
+**DELETE** `/api/v1/smtp/warmup/{id}` — delete schedule
+
+---
+
+### ISP Profiles
+
+**GET** `/api/v1/smtp/isp-profiles` — list built-in ISP profiles
+
+Returns profiles for: Gmail, Yahoo, Outlook, Apple Mail, Comcast, Generic. Each includes:
+- `max_connections`
+- `max_messages_per_connection`
+- `rate_limit` (msgs/sec)
+- `retry_delay` (seconds)
+- `notes`
+
+**POST** `/api/v1/smtp/isp-profiles/apply` — apply a profile to a routing rule
+```json
+{
+  "profile_name": "gmail",
+  "routing_rule_id": 3
+}
+```
+
+---
+
+### Mailbox Simulator
+
+**GET** `/api/v1/smtp/simulator/scenarios` — list available test scenarios
+
+Scenarios: `success`, `bounce`, `complaint`, `block`, `slowdown`, `ooo`
+
+**POST** `/api/v1/smtp/simulator/test`
+```json
+{
+  "scenario": "bounce",
+  "from_email": "sender@yourdomain.com",
+  "notes": "Test hard bounce handling"
+}
+```
+
+Response:
+```json
+{
+  "scenario": "bounce",
+  "simulated": true,
+  "expected_behavior": "Message will be treated as hard bounce",
+  "recommendation": "Verify suppression list adds this address automatically"
+}
+```
+
+---
+
+### Configuration Sets
+
+**GET** `/api/v1/smtp/configuration-sets` — list all config sets
+
+**POST** `/api/v1/smtp/configuration-sets` — create config set
+```json
+{
+  "name": "transactional",
+  "open_tracking": true,
+  "click_tracking": true,
+  "webhook_id": 1,
+  "notes": "For transactional emails"
+}
+```
+
+**PUT** `/api/v1/smtp/configuration-sets/{id}` — update
+
+**DELETE** `/api/v1/smtp/configuration-sets/{id}` — delete
+
+---
+
+### Server Info & IP Pool
+
+**GET** `/api/v1/smtp/server-info` — server hostname, version, active connections, TLS info
+
+**GET** `/api/v1/smtp/ip-pool` — list all configured sending IPs
+
+**POST** `/api/v1/smtp/ip-pool/add`
+```json
+{
+  "ip_address": "192.0.2.30",
+  "label": "Secondary IP",
+  "active": true
+}
+```
+
+**DELETE** `/api/v1/smtp/ip-pool/{ip}` — remove IP from pool

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from database import get_db, User, Domain, RoutingRule, Webhook
+from database import get_db, User, Domain, RoutingRule, Webhook, IPWarmupSchedule, ConfigurationSet
 from schemas import SMTPSettingsResponse, AuthenticationSettingsResponse
 from config import settings
 import ipaddress
@@ -14,6 +14,7 @@ import json
 import smtplib
 import secrets
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -834,4 +835,459 @@ async def update_tracking_config(
         updated["tracking_domain"] = settings.TRACKING_DOMAIN
 
     return {"message": "Tracking settings updated", "updated": updated}
+
+
+# ─────────────────────────────────────────────
+#  IP Warmup Schedule  (SES / GreenArrow style)
+# ─────────────────────────────────────────────
+
+# Default warmup stages: {day_number: daily_limit}  0 = unlimited
+DEFAULT_WARMUP_SCHEDULE = {"1": 200, "3": 500, "7": 1000, "14": 5000, "30": 20000, "60": 0}
+
+ISP_THROTTLE_PROFILES = {
+    "gmail": {
+        "name": "Gmail / Google Workspace",
+        "description": "Conservative limits recommended by Google's Postmaster guidelines",
+        "max_connections": 20,
+        "rate_limit_per_second": 5,
+        "max_recipients_per_connection": 100,
+        "retry_strategy": "exponential",
+        "notes": "Respect DMARC p=reject. Monitor Google Postmaster Tools for reputation.",
+    },
+    "yahoo": {
+        "name": "Yahoo / AOL",
+        "description": "Yahoo mail throttling recommendations",
+        "max_connections": 10,
+        "rate_limit_per_second": 3,
+        "max_recipients_per_connection": 100,
+        "retry_strategy": "exponential",
+        "notes": "Honor FBL complaints promptly. Use a consistent sending IP.",
+    },
+    "outlook": {
+        "name": "Outlook / Hotmail / Microsoft 365",
+        "description": "Microsoft Smart Network Data Services (SNDS) guidelines",
+        "max_connections": 25,
+        "rate_limit_per_second": 8,
+        "max_recipients_per_connection": 100,
+        "retry_strategy": "linear",
+        "notes": "Register with JMRP. Keep complaint rate below 0.3%.",
+    },
+    "apple": {
+        "name": "Apple iCloud Mail",
+        "description": "Apple iCloud Mail sending guidelines",
+        "max_connections": 10,
+        "rate_limit_per_second": 3,
+        "max_recipients_per_connection": 50,
+        "retry_strategy": "exponential",
+        "notes": "DKIM signing mandatory. SPF and DMARC strongly recommended.",
+    },
+    "comcast": {
+        "name": "Comcast / Xfinity",
+        "description": "Comcast postmaster guidelines",
+        "max_connections": 8,
+        "rate_limit_per_second": 2,
+        "max_recipients_per_connection": 50,
+        "retry_strategy": "exponential",
+        "notes": "Register at postmaster.comcast.net for complaint feedback.",
+    },
+    "generic": {
+        "name": "Generic Conservative",
+        "description": "Safe defaults for unknown or smaller ISPs",
+        "max_connections": 5,
+        "rate_limit_per_second": 2,
+        "max_recipients_per_connection": 50,
+        "retry_strategy": "exponential",
+        "notes": "Good default for new IP warmup or unknown recipients.",
+    },
+}
+
+
+@router.get("/warmup")
+async def list_warmup_schedules(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all IP warmup schedules for the current user."""
+    schedules = db.query(IPWarmupSchedule).filter(
+        IPWarmupSchedule.owner_id == current_user.id
+    ).all()
+
+    result = []
+    for s in schedules:
+        # Calculate current day of warmup
+        days_active = (datetime.utcnow() - s.start_date).days if s.start_date else 0
+        # Find current daily limit from schedule
+        sched = s.schedule or DEFAULT_WARMUP_SCHEDULE
+        current_limit = 0
+        for day_str in sorted(sched.keys(), key=lambda x: int(x)):
+            if days_active >= int(day_str):
+                current_limit = sched[day_str]
+        is_unlimited = current_limit == 0
+
+        result.append({
+            "id": s.id,
+            "ip_address": s.ip_address,
+            "is_active": s.is_active,
+            "start_date": s.start_date.isoformat() if s.start_date else None,
+            "days_active": days_active,
+            "current_daily_limit": None if is_unlimited else current_limit,
+            "today_sent": s.today_sent,
+            "schedule": sched,
+            "notes": s.notes,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        })
+
+    return result
+
+
+@router.post("/warmup")
+async def create_warmup_schedule(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create an IP warmup schedule."""
+    ip_str = (body.get("ip_address") or "").strip()
+    if not ip_str:
+        raise HTTPException(status_code=400, detail="ip_address is required")
+    try:
+        ipaddress.ip_address(ip_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid IP address: {ip_str}")
+
+    existing = db.query(IPWarmupSchedule).filter(
+        IPWarmupSchedule.owner_id == current_user.id,
+        IPWarmupSchedule.ip_address == ip_str,
+        IPWarmupSchedule.is_active == True,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Active warmup schedule already exists for this IP")
+
+    schedule = body.get("schedule") or DEFAULT_WARMUP_SCHEDULE
+    start_date_str = body.get("start_date")
+    start_date = datetime.fromisoformat(start_date_str) if start_date_str else datetime.utcnow()
+
+    sched = IPWarmupSchedule(
+        owner_id=current_user.id,
+        ip_address=ip_str,
+        start_date=start_date,
+        schedule=schedule,
+        is_active=True,
+        notes=(body.get("notes") or "").strip() or None,
+    )
+    db.add(sched)
+    db.commit()
+    db.refresh(sched)
+    return {"message": "Warmup schedule created", "id": sched.id}
+
+
+@router.put("/warmup/{schedule_id}")
+async def update_warmup_schedule(
+    schedule_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a warmup schedule."""
+    sched = db.query(IPWarmupSchedule).filter(
+        IPWarmupSchedule.id == schedule_id,
+        IPWarmupSchedule.owner_id == current_user.id,
+    ).first()
+    if not sched:
+        raise HTTPException(status_code=404, detail="Warmup schedule not found")
+
+    if "is_active" in body:
+        sched.is_active = bool(body["is_active"])
+    if "schedule" in body:
+        sched.schedule = body["schedule"]
+    if "notes" in body:
+        sched.notes = body["notes"]
+    if "start_date" in body:
+        sched.start_date = datetime.fromisoformat(body["start_date"])
+
+    db.commit()
+    return {"message": "Warmup schedule updated"}
+
+
+@router.delete("/warmup/{schedule_id}")
+async def delete_warmup_schedule(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a warmup schedule."""
+    sched = db.query(IPWarmupSchedule).filter(
+        IPWarmupSchedule.id == schedule_id,
+        IPWarmupSchedule.owner_id == current_user.id,
+    ).first()
+    if not sched:
+        raise HTTPException(status_code=404, detail="Warmup schedule not found")
+    db.delete(sched)
+    db.commit()
+    return {"message": "Warmup schedule deleted"}
+
+
+# ─────────────────────────────────────────────
+#  ISP Traffic Shaping Profiles  (PowerMTA)
+# ─────────────────────────────────────────────
+
+@router.get("/isp-profiles")
+async def list_isp_profiles(current_user: User = Depends(get_current_user)):
+    """
+    Return pre-built ISP throttle profiles (PowerMTA traffic shaping equivalent).
+    """
+    return {
+        "profiles": [
+            {"isp": key, **profile}
+            for key, profile in ISP_THROTTLE_PROFILES.items()
+        ]
+    }
+
+
+@router.post("/isp-profiles/apply")
+async def apply_isp_profile(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Apply an ISP throttle profile as a new routing rule.
+    """
+    isp_key = (body.get("isp") or "").lower().strip()
+    if isp_key not in ISP_THROTTLE_PROFILES:
+        raise HTTPException(status_code=400, detail=f"Unknown ISP profile: {isp_key}. Available: {list(ISP_THROTTLE_PROFILES)}")
+
+    profile = ISP_THROTTLE_PROFILES[isp_key]
+    recipient_domain = (body.get("recipient_domain") or "").strip() or None
+
+    rule = RoutingRule(
+        owner_id=current_user.id,
+        name=f"{profile['name']} — ISP Profile",
+        description=f"Auto-applied {profile['name']} traffic shaping profile. {profile['notes']}",
+        recipient_domain=recipient_domain,
+        max_connections=profile["max_connections"],
+        rate_limit_per_second=profile["rate_limit_per_second"],
+        retry_strategy=profile["retry_strategy"],
+        is_active=True,
+        priority_order=50,  # Higher priority than defaults
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return {"message": f"ISP profile for {profile['name']} applied as routing rule", "routing_rule_id": rule.id}
+
+
+# ─────────────────────────────────────────────
+#  Mailbox Simulator  (Amazon SES equivalent)
+# ─────────────────────────────────────────────
+
+SIMULATOR_SCENARIOS = {
+    "delivery": {
+        "description": "Simulates successful message delivery",
+        "expected_status": "sent",
+        "smtp_response": "250 2.0.0 OK: Message queued",
+    },
+    "bounce": {
+        "description": "Simulates a hard bounce (address does not exist)",
+        "expected_status": "bounced",
+        "smtp_response": "550 5.1.1 The email account does not exist",
+    },
+    "soft_bounce": {
+        "description": "Simulates a temporary soft bounce (mailbox full)",
+        "expected_status": "deferred",
+        "smtp_response": "452 4.2.2 Mailbox full",
+    },
+    "complaint": {
+        "description": "Simulates a spam complaint via FBL",
+        "expected_status": "sent",
+        "smtp_response": "250 2.0.0 OK: Message delivered; FBL complaint generated",
+    },
+    "out_of_office": {
+        "description": "Simulates an out-of-office autoresponder",
+        "expected_status": "sent",
+        "smtp_response": "250 2.0.0 OK: Message delivered with autoresponder",
+    },
+    "suppressed": {
+        "description": "Simulates sending to a suppressed address",
+        "expected_status": "failed",
+        "smtp_response": "550 5.1.1 Address is on suppression list",
+    },
+}
+
+
+@router.get("/simulator/scenarios")
+async def list_simulator_scenarios(current_user: User = Depends(get_current_user)):
+    """List available mailbox simulator scenarios (SES Mailbox Simulator equivalent)."""
+    return {"scenarios": [{"id": k, **v} for k, v in SIMULATOR_SCENARIOS.items()]}
+
+
+@router.post("/simulator/test")
+async def run_simulator_test(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Run a mailbox simulator test.
+    Simulates SMTP delivery scenarios without sending real email.
+    """
+    scenario_id = (body.get("scenario") or "").lower().strip()
+    if scenario_id not in SIMULATOR_SCENARIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown scenario '{scenario_id}'. Choose from: {list(SIMULATOR_SCENARIOS)}"
+        )
+
+    from_email = (body.get("from_email") or "").strip()
+    if not from_email:
+        raise HTTPException(status_code=400, detail="from_email is required")
+
+    scenario = SIMULATOR_SCENARIOS[scenario_id]
+
+    # Simulate processing delay and result
+    import uuid as _uuid
+    sim_message_id = f"<sim-{_uuid.uuid4().hex[:12]}@simulator.cloudmta>"
+
+    result = {
+        "simulation_id": sim_message_id,
+        "scenario": scenario_id,
+        "description": scenario["description"],
+        "from_email": from_email,
+        "to_email": f"simulator+{scenario_id}@cloudmta.test",
+        "simulated_smtp_response": scenario["smtp_response"],
+        "expected_final_status": scenario["expected_status"],
+        "dkim_signed": True,
+        "spf_pass": True,
+        "dmarc_pass": True,
+        "processing_time_ms": 42,
+        "simulated_at": datetime.utcnow().isoformat(),
+        "notes": "This is a simulation only. No real email was sent.",
+    }
+
+    # For bounce simulation, add suppression recommendation
+    if scenario_id == "bounce":
+        result["recommendations"] = [
+            "Add this address to your Suppression List to prevent future sending",
+            "Review your list source — addresses that bounce immediately may be purchased or invalid",
+        ]
+    elif scenario_id == "complaint":
+        result["recommendations"] = [
+            "Ensure a clear one-click unsubscribe link is present in all emails",
+            "Review your sending frequency — complaint rates spike when sending increases sharply",
+        ]
+
+    return result
+
+
+# ─────────────────────────────────────────────
+#  Configuration Sets  (Amazon SES style)
+# ─────────────────────────────────────────────
+
+@router.get("/configuration-sets")
+async def list_configuration_sets(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all configuration sets."""
+    sets = db.query(ConfigurationSet).filter(
+        ConfigurationSet.owner_id == current_user.id
+    ).all()
+
+    return [
+        {
+            "id": cs.id,
+            "name": cs.name,
+            "description": cs.description,
+            "open_tracking_enabled": cs.open_tracking_enabled,
+            "click_tracking_enabled": cs.click_tracking_enabled,
+            "sending_enabled": cs.sending_enabled,
+            "max_bounce_rate": cs.max_bounce_rate,
+            "max_complaint_rate": cs.max_complaint_rate,
+            "dedicated_ips": cs.dedicated_ips or [],
+            "virtual_mta_name": cs.virtual_mta_name,
+            "is_active": cs.is_active,
+            "created_at": cs.created_at.isoformat() if cs.created_at else None,
+        }
+        for cs in sets
+    ]
+
+
+@router.post("/configuration-sets")
+async def create_configuration_set(
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a configuration set."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Configuration set name is required")
+
+    existing = db.query(ConfigurationSet).filter(
+        ConfigurationSet.owner_id == current_user.id,
+        ConfigurationSet.name == name,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A configuration set with this name already exists")
+
+    cs = ConfigurationSet(
+        owner_id=current_user.id,
+        name=name,
+        description=(body.get("description") or "").strip() or None,
+        open_tracking_enabled=body.get("open_tracking_enabled"),
+        click_tracking_enabled=body.get("click_tracking_enabled"),
+        sending_enabled=bool(body.get("sending_enabled", True)),
+        max_bounce_rate=float(body.get("max_bounce_rate", 0.10)),
+        max_complaint_rate=float(body.get("max_complaint_rate", 0.001)),
+        dedicated_ips=body.get("dedicated_ips") or [],
+        virtual_mta_name=(body.get("virtual_mta_name") or "").strip() or None,
+        is_active=bool(body.get("is_active", True)),
+    )
+    db.add(cs)
+    db.commit()
+    db.refresh(cs)
+    return {"message": "Configuration set created", "id": cs.id}
+
+
+@router.put("/configuration-sets/{set_id}")
+async def update_configuration_set(
+    set_id: int,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a configuration set."""
+    cs = db.query(ConfigurationSet).filter(
+        ConfigurationSet.id == set_id,
+        ConfigurationSet.owner_id == current_user.id,
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=404, detail="Configuration set not found")
+
+    for field in ["name", "description", "sending_enabled", "max_bounce_rate",
+                  "max_complaint_rate", "dedicated_ips", "virtual_mta_name", "is_active",
+                  "open_tracking_enabled", "click_tracking_enabled"]:
+        if field in body:
+            setattr(cs, field, body[field])
+
+    db.commit()
+    return {"message": "Configuration set updated"}
+
+
+@router.delete("/configuration-sets/{set_id}")
+async def delete_configuration_set(
+    set_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a configuration set."""
+    cs = db.query(ConfigurationSet).filter(
+        ConfigurationSet.id == set_id,
+        ConfigurationSet.owner_id == current_user.id,
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=404, detail="Configuration set not found")
+    db.delete(cs)
+    db.commit()
+    return {"message": "Configuration set deleted"}
 
