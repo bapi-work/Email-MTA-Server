@@ -30,17 +30,9 @@ Download and install:
 
 ### Step 2: Get CloudMTA
 
-Option A: Using Git
+Copy or extract the CloudMTA distribution to a directory on your server:
 ```bash
-git clone https://github.com/yourusername/cloudmta.git
-cd cloudmta
-```
-
-Option B: Download the ZIP file
-```bash
-# Download cloudmta-main.zip from GitHub
-unzip cloudmta-main.zip
-cd cloudmta-main
+cd /opt/cloudmta
 ```
 
 ### Step 3: Start the Services
@@ -64,25 +56,25 @@ cloudmta_smtp | CloudMTA SMTP server started successfully
 
 Open your browser and go to:
 ```
-http://localhost:3000
+http://localhost
 ```
 
 **Login with default credentials:**
 - Email: `admin@yourdomain.com`
 - Password: `ChangeMe123!`
 
-⚠️ **Change this password after first login!**
+> **Security:** Change the default password immediately after first login and before exposing the server to the internet.
 
 ### Step 5: Send Your First Email
 
 Using the API:
 ```bash
 # Get authentication token
-curl -X POST http://localhost:8000/api/v1/auth/login \
+curl -X POST http://localhost/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "admin@yourdomain.com",
-    "password": "ChangeMe123!"
+    "password": "YOUR_PASSWORD"
   }'
 
 # Response includes access_token - copy it
@@ -91,7 +83,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 telnet localhost 25
 > EHLO localhost
 > AUTH PLAIN
-> [base64 encoded admin@yourdomain.com:ChangeMe123!]
+> [base64 encoded credentials]
 > MAIL FROM:<sender@yourdomain.com>
 > RCPT TO:<recipient@example.com>
 > DATA
@@ -120,7 +112,7 @@ Or use the admin portal:
 
 **Via API:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
+curl -X POST http://localhost/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "username": "newuser",
@@ -143,7 +135,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 
 **Via API:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/domains/ \
+curl -X POST http://localhost/api/v1/domains/ \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"domain_name": "mail.example.com"}'
@@ -158,7 +150,7 @@ curl -X POST http://localhost:8000/api/v1/domains/ \
 
 **Via API:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/users/1/api-key \
+curl -X POST http://localhost/api/v1/users/1/api-key \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"description": "My Integration"}'
@@ -174,15 +166,15 @@ curl -X POST http://localhost:8000/api/v1/users/1/api-key \
 **Via API:**
 ```bash
 # Get queue statistics
-curl http://localhost:8000/api/v1/queues/stats \
+curl http://localhost/api/v1/queues/stats \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # List messages
-curl http://localhost:8000/api/v1/queues/messages \
+curl http://localhost/api/v1/queues/messages \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # Get specific message status
-curl http://localhost:8000/api/v1/queues/messages/{message_id} \
+curl http://localhost/api/v1/queues/messages/{message_id} \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -197,11 +189,11 @@ curl http://localhost:8000/api/v1/queues/messages/{message_id} \
 **Via API:**
 ```bash
 # Dashboard stats
-curl http://localhost:8000/api/v1/analytics/dashboard \
+curl http://localhost/api/v1/analytics/dashboard \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # Delivery by domain
-curl http://localhost:8000/api/v1/analytics/delivery-by-domain \
+curl http://localhost/api/v1/analytics/delivery-by-domain \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -211,13 +203,13 @@ CloudMTA includes a REST Send API — useful for application integrations withou
 
 ```bash
 # Get auth token first
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+TOKEN=$(curl -s -X POST http://localhost/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@yourdomain.com","password":"ChangeMe123!"}' \
+  -d '{"email":"admin@yourdomain.com","password":"YOUR_PASSWORD"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 # Send an email via HTTP REST API
-curl -X POST http://localhost:8000/api/v1/send \
+curl -X POST http://localhost/api/v1/send \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -242,11 +234,11 @@ curl -X POST http://localhost:8000/api/v1/send \
 **Via API:**
 ```bash
 # Get overall score (last 7 days)
-curl http://localhost:8000/api/v1/reputation/score?days=7 \
+curl http://localhost/api/v1/reputation/score?days=7 \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # Get smart recommendations
-curl http://localhost:8000/api/v1/reputation/recommendations \
+curl http://localhost/api/v1/reputation/recommendations \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -263,17 +255,17 @@ Suppressed addresses are never delivered to — they are checked before sending.
 **Via API:**
 ```bash
 # Add suppressed addresses
-curl -X POST http://localhost:8000/api/v1/suppressions \
+curl -X POST http://localhost/api/v1/suppressions \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"addresses": [{"email": "bad@example.com", "reason": "bounce"}]}'
 
 # Check if suppressed
-curl "http://localhost:8000/api/v1/suppressions/check?email=bad@example.com" \
+curl "http://localhost/api/v1/suppressions/check?email=bad@example.com" \
   -H "Authorization: Bearer YOUR_TOKEN"
 
 # Get stats
-curl http://localhost:8000/api/v1/suppressions/stats \
+curl http://localhost/api/v1/suppressions/stats \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -289,7 +281,7 @@ Use IP Warmup to ramp up a new sending IP over time and avoid ISP blocks.
 
 **Via API:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/smtp/warmup \
+curl -X POST http://localhost/api/v1/smtp/warmup \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -329,7 +321,7 @@ $mail->Host = 'localhost';
 $mail->Port = 587;
 $mail->SMTPAuth = true;
 $mail->Username = 'sender@yourdomain.com';
-$mail->Password = 'ChangeMe123!';
+$mail->Password = 'YOUR_PASSWORD';
 $mail->SMTPSecure = 'tls';
 $mail->setFrom('sender@yourdomain.com');
 $mail->addAddress('recipient@example.com');
@@ -350,7 +342,7 @@ msg['To'] = 'recipient@example.com'
 
 smtp = smtplib.SMTP('localhost', 587)
 smtp.starttls()
-smtp.login('sender@yourdomain.com', 'ChangeMe123!')
+smtp.login('sender@yourdomain.com', 'YOUR_PASSWORD')
 smtp.send_message(msg)
 smtp.quit()
 ```
@@ -365,7 +357,7 @@ const transporter = nodemailer.createTransport({
   secure: false,
   auth: {
     user: 'sender@yourdomain.com',
-    pass: 'ChangeMe123!'
+    pass: 'YOUR_PASSWORD'
   }
 });
 
@@ -414,7 +406,7 @@ Should see: `220 cloudmta ESMTP`
 ### Authentication fails
 
 **Check credentials:**
-- Default: `admin@yourdomain.com` / `ChangeMe123!`
+- Default login: `admin@yourdomain.com` and the password set at first login
 - Verify user exists: Check Users section in admin portal
 - Check password case sensitivity
 
@@ -428,7 +420,7 @@ docker-compose logs smtp-server
 
 **Check queue status:**
 ```bash
-curl http://localhost:8000/api/v1/queues/stats \
+curl http://localhost/api/v1/queues/stats \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -439,7 +431,7 @@ docker-compose logs backend
 
 **Requeue deferred messages:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/queues/requeue-deferred \
+curl -X POST http://localhost/api/v1/queues/requeue-deferred \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -499,55 +491,8 @@ docker-compose up -d
 
 ## Need Help?
 
-- **API Documentation**: http://localhost:8000/docs
-- **Swagger UI**: http://localhost:8000/docs
-- **GitHub Issues**: Report bugs or request features
+- **API Documentation**: http://localhost/docs
 - **Documentation**: See `docs/` folder in repository
-
-## What's Included?
-
-```
-cloudmta/
-├── backend/              # FastAPI application
-├── frontend/             # React admin portal
-├── smtp-server/          # SMTP server implementation
-├── database/             # Database schemas and migrations
-├── config/               # Configuration files (nginx, etc.)
-├── docs/                 # Documentation
-│   ├── API.md           # API reference
-│   ├── DEPLOYMENT.md    # Deployment guide
-│   └── FEATURES_ARCHITECTURE.md
-├── docker-compose.yml   # Container orchestration
-├── .env                 # Environment configuration
-└── README.md            # This file
-```
-
-## Feature Checklist
-
-- ✅ SMTP Server (ports 25, 587, 465)
-- ✅ SPF, DKIM, DMARC support
-- ✅ IPv4 & IPv6 rotation
-- ✅ Admin Web Portal (React + Ant Design)
-- ✅ REST API with JWT auth & API keys
-- ✅ HTTP Send API (no SMTP client required)
-- ✅ User & Domain Management
-- ✅ Message Queue with status tracking
-- ✅ Analytics & Reporting
-- ✅ Suppression List (SES-style)
-- ✅ Reputation Dashboard (score, trends, recommendations)
-- ✅ Routing Rules (Virtual MTAs)
-- ✅ Webhooks (event delivery with HMAC signing)
-- ✅ Open & Click Tracking
-- ✅ IP Warmup Scheduler
-- ✅ ISP Traffic Shaping Profiles
-- ✅ Mailbox Simulator (6 test scenarios)
-- ✅ Configuration Sets (SES-parity)
-- ✅ Docker containerization (6 containers)
-- ✅ PostgreSQL database (10 tables)
-- ✅ Redis caching
-- ✅ nginx reverse proxy with rate limiting
-- ✅ Production overrides (docker-compose.prod.yml)
-- ✅ Idle auto-logout (3 min inactivity)
 
 ## License
 
@@ -555,4 +500,4 @@ Proprietary - All rights reserved
 
 ---
 
-**Ready to get started? Run `docker-compose up -d` and open http://localhost:3000!**
+**Ready to get started? Run `docker-compose up -d` and open http://localhost!**

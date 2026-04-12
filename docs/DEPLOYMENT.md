@@ -35,14 +35,14 @@ This will start:
 3. **Access the Admin Portal**
 
 Open your browser and navigate to:
-- HTTP: `http://localhost:3000`
+- HTTP: `http://localhost`
 - HTTPS: `https://localhost` (with self-signed certificate)
 
 4. **Default Credentials**
 
 ```
 Email: admin@yourdomain.com
-Password: ChangeMe123!
+Password: <set during first-run init>
 ```
 
 > Change the default password immediately after first login.
@@ -66,7 +66,7 @@ Before going live, complete all of the following in `.env`:
 
 - [ ] `SECRET_KEY` — generate a new random 64-char secret
 - [ ] `POSTGRES_PASSWORD` — change from default
-- [ ] `REDIS_PASSWORD` — change from default (`Redis2026!` is the dev default)
+- [ ] `REDIS_PASSWORD` — change from the dev default to a strong random value
 - [ ] `SMTP_HOSTNAME` — set to your actual mail server FQDN
 - [ ] `ENVIRONMENT=production`
 - [ ] `DEBUG=false`
@@ -260,16 +260,6 @@ Monitor the metrics available in the Analytics section of the admin portal:
 - IP rotation stats
 - Failure reasons
 
-### Prometheus Metrics
-
-The API exposes Prometheus metrics at:
-
-```
-GET /metrics
-```
-
-(Can be configured in settings)
-
 ## Troubleshooting
 
 ### Connection Refused
@@ -388,7 +378,7 @@ docker-compose restart backend
 
 ## Support & Documentation
 
-- Interactive API docs: http://localhost:8000/docs
+- Interactive API docs: http://localhost/docs
 - Admin Portal: http://localhost
 - Full documentation: See `docs/` directory
 

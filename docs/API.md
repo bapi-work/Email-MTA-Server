@@ -16,7 +16,7 @@ Request body:
 ```json
 {
   "email": "admin@yourdomain.com",
-  "password": "ChangeMe123!"
+  "password": "YOUR_PASSWORD"
 }
 ```
 

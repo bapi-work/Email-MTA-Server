@@ -119,8 +119,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full production checklist.
 
 ## API Documentation
 
-- Interactive Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- Interactive Swagger UI: `http://localhost/docs`
+- ReDoc: `http://localhost/redoc`
 - Full API reference: [docs/API.md](docs/API.md)
 
 ## Documentation
@@ -131,7 +131,6 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full production checklist.
 | [docs/API.md](docs/API.md) | Complete REST API reference |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment & ops guide |
 | [docs/FEATURES_ARCHITECTURE.md](docs/FEATURES_ARCHITECTURE.md) | Feature deep-dives & architecture |
-| [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) | Codebase structure & implementation notes |
 
 ## Configuration
 
@@ -209,4 +208,4 @@ Proprietary. All rights reserved.
 
 ## Support
 
-For issues and feature requests, contact: support@cloudmta.local
+For issues and feature requests, open a ticket with your support team.
