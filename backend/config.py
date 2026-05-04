@@ -51,12 +51,15 @@ class Settings(BaseSettings):
         "api": 1000
     }
     
-    # CORS
+    # CORS — reads comma-separated CORS_ORIGINS from .env (pydantic-settings v2
+    # requires JSON arrays for list fields, so we parse it manually via os.getenv)
     CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://localhost",
-        "http://127.0.0.1:3000"
+        o.strip()
+        for o in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://localhost:8000,http://localhost,http://127.0.0.1:3000"
+        ).split(",")
+        if o.strip()
     ]
     
     # Email Validation

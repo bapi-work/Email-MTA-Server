@@ -42,7 +42,7 @@ Open your browser and navigate to:
 
 ```
 Email: admin@yourdomain.com
-Password: <set during first-run init>
+Password: ChangeMe123!
 ```
 
 > Change the default password immediately after first login.
@@ -60,6 +60,8 @@ A production overrides file is included. It enables:
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
+> **Note**: Resource limits (`deploy.resources`) require **Docker Compose V2** (`docker compose`, bundled with Docker Desktop 3.3+ / Docker Engine 20.10+). The legacy `docker-compose` V1 binary silently ignores those limits. Verify with `docker compose version`.
+
 ### Pre-Flight Checklist
 
 Before going live, complete all of the following in `.env`:
@@ -71,6 +73,7 @@ Before going live, complete all of the following in `.env`:
 - [ ] `ENVIRONMENT=production`
 - [ ] `DEBUG=false`
 - [ ] `LOG_LEVEL=WARNING`
+- [ ] `CORS_ORIGINS` — add your production domain (e.g. `https://mta.yourdomain.com`)
 - [ ] Copy real TLS certificates to `config/ssl/cert.pem` and `config/ssl/key.pem`
 - [ ] Change admin account password after first login
 - [ ] Set `OPEN_TRACKING_ENABLED` and `CLICK_TRACKING_ENABLED` as needed
@@ -103,6 +106,9 @@ SMTP_SSL_PORT=465
 
 # Set SMTP authentication
 SMTP_AUTH_ENABLED=true
+
+# CORS — add your production domain (comma-separated, no spaces)
+CORS_ORIGINS=https://mta.yourdomain.com,http://localhost:3000
 ```
 
 ### SSL/TLS Certificate Setup
