@@ -299,11 +299,20 @@ curl -X POST http://localhost/api/v1/smtp/warmup \
 | Setting | Value |
 |---------|-------|
 | **SMTP Server** | localhost (or your server IP) |
-| **SMTP Port** | 25 (plain), 587 (STARTTLS) |
-| **SMTPS Port** | 465 (SSL/TLS) |
+| **SMTP Port** | 25 plain · 587 STARTTLS (configurable via `.env`) |
+| **SMTPS Port** | 465 implicit TLS (configurable via `.env`) |
 | **Authentication** | Plain or Login |
 | **Username** | Your email address |
 | **Password** | Your password |
+
+> **Changing ports**: Edit `SMTP_PORT`, `SMTP_TLS_PORT`, and `SMTP_SSL_PORT` in `.env`, then restart with `docker-compose up -d`. Both the host binding and the server's listening port update together. Example — avoid ISP blocks on port 25 by using 2525:
+> ```env
+> SMTP_PORT=2525
+> SMTP_TLS_PORT=5587
+> SMTP_SSL_PORT=8465
+> ```
+
+> **SMTPS (port 465)**: Only starts when SSL certificates are present at `config/ssl/cert.pem` and `config/ssl/key.pem`. See [DEPLOYMENT.md](DEPLOYMENT.md) for certificate setup.
 
 ### Example: Configure Mail Client
 

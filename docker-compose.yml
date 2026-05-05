@@ -81,11 +81,14 @@ services:
       REDIS_URL: redis://:Redis2026!@redis:6379/1
       API_BASE_URL: http://backend:8000
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTP_TLS_PORT: ${SMTP_TLS_PORT:-587}
+      SMTP_SSL_PORT: ${SMTP_SSL_PORT:-465}
     ports:
-      - "25:25"      # SMTP
-      - "587:587"    # Submission (STARTTLS)
-      - "465:465"    # SMTPS (SSL)
-      - "9000:9000"  # Health check port
+      - "${SMTP_PORT:-25}:${SMTP_PORT:-25}"         # SMTP (plain)
+      - "${SMTP_TLS_PORT:-587}:${SMTP_TLS_PORT:-587}" # Submission (STARTTLS)
+      - "${SMTP_SSL_PORT:-465}:${SMTP_SSL_PORT:-465}" # SMTPS (implicit TLS)
+      - "9000:9000"                                  # Health check endpoint
     depends_on:
       postgres:
         condition: service_healthy
@@ -101,7 +104,7 @@ services:
       - cloudmta_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.settimeout(3); s.connect(('localhost', 25)); s.close()\" || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 15s
       timeout: 5s
       retries: 5
