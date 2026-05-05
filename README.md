@@ -53,7 +53,12 @@ A production-ready, feature-rich SMTP server with admin portal, REST API, and en
 cd "Email MTA Server"
 ```
 
-2. Start all services:
+2. Create your environment file from the example:
+```bash
+cp .env.example .env
+```
+
+3. Start all services:
 ```bash
 docker-compose up -d
 ```

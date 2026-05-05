@@ -35,7 +35,15 @@ Copy or extract the CloudMTA distribution to a directory on your server:
 cd /opt/cloudmta
 ```
 
-### Step 3: Start the Services
+### Step 3: Configure the Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` if you need to change ports or set production secrets. The defaults work for a local trial run.
+
+### Step 4: Start the Services
 
 ```bash
 docker-compose up -d
@@ -52,7 +60,7 @@ cloudmta_backend | Application startup complete
 cloudmta_smtp | CloudMTA SMTP server started successfully
 ```
 
-### Step 4: Access the Admin Portal
+### Step 5: Access the Admin Portal
 
 Open your browser and go to:
 ```
@@ -65,7 +73,7 @@ http://localhost
 
 > **Security:** Change the default password immediately after first login and before exposing the server to the internet.
 
-### Step 5: Send Your First Email
+### Step 6: Send Your First Email
 
 Using the API:
 ```bash

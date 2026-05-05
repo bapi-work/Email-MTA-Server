@@ -18,7 +18,15 @@ mkdir cloudmta
 cd cloudmta
 ```
 
-2. **Start the services**
+2. **Create your environment file**
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in all required values (see the Pre-Flight Checklist below for production requirements).
+
+3. **Start the services**
 
 ```bash
 docker-compose up -d
@@ -32,13 +40,13 @@ This will start:
 - Frontend (port 3000)
 - Nginx reverse proxy (ports 80, 443)
 
-3. **Access the Admin Portal**
+4. **Access the Admin Portal**
 
 Open your browser and navigate to:
 - HTTP: `http://localhost`
 - HTTPS: `https://localhost` (with self-signed certificate)
 
-4. **Default Credentials**
+5. **Default Credentials**
 
 ```
 Email: admin@yourdomain.com
