@@ -58,10 +58,12 @@ frontend/build/
 *.log
 docker-compose.override.yml
 
-# Database
-*.sql
+# Database — ignore dump/backup files but keep init scripts
 database/backups/
 postgres_data/
+*.dump
+*.backup
+# NOTE: database/schema.sql and database/init.sql are intentionally tracked
 
 # Redis
 redis_data/
