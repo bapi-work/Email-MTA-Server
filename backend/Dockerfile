@@ -22,8 +22,8 @@ COPY . .
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=10 --start-period=60s \
+    CMD curl -f http://localhost:8000/ping || exit 1
 
 # Development: use --reload. Override CMD in docker-compose.prod.yml for production.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

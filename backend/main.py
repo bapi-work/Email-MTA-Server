@@ -63,7 +63,12 @@ app.add_middleware(
 # Add custom JWT middleware
 app.add_middleware(JWTMiddleware)
 
-# Health check endpoint (no auth required)
+# Liveness probe — always 200 if the process is running (used by Docker HEALTHCHECK)
+@app.get("/ping", tags=["Health"], include_in_schema=False)
+async def ping():
+    return {"status": "ok"}
+
+# Readiness / dependency health check — 503 if DB or Redis are down
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Check API and service health"""

@@ -15,6 +15,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
     
     # Public routes that don't require authentication
     PUBLIC_ROUTES = {
+        "/ping",
         "/health",
         "/docs",
         "/redoc",
