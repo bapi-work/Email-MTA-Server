@@ -202,6 +202,42 @@ class APILog(Base):
 
 
 # ─────────────────────────────────────────────────────
+#  Bounces  — hard/soft/undetermined bounce records
+# ─────────────────────────────────────────────────────
+class Bounce(Base):
+    __tablename__ = "bounces"
+    __table_args__ = (
+        Index('idx_bounces_message', 'message_id'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String(255), ForeignKey('messages.message_id', ondelete='CASCADE'))
+    bounce_type = Column(String(50))       # permanent | temporary | undetermined
+    bounce_subtype = Column(String(50))
+    recipient = Column(String(255))
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
+#  IP Address Pool  — per-user sending IP management
+# ─────────────────────────────────────────────────────
+class IPAddress(Base):
+    __tablename__ = "ip_addresses"
+    __table_args__ = (
+        Index('idx_ips_user', 'user_id'),
+        Index('idx_ips_address', 'ip_address'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    ip_address = Column(String(255), nullable=False)
+    ip_version = Column(Integer)           # 4 or 6
+    is_active = Column(Boolean, default=True)
+    last_used = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ─────────────────────────────────────────────────────
 #  Routing Rules  — PowerMTA-style Virtual MTA routing
 # ─────────────────────────────────────────────────────
 class RoutingRule(Base):

@@ -118,7 +118,7 @@ services:
       dockerfile: Dockerfile
     container_name: cloudmta_frontend
     environment:
-      REACT_APP_API_URL: http://localhost:8000
+      REACT_APP_API_URL: ""
       REACT_APP_ENV: ${ENVIRONMENT:-development}
     ports:
       - "3000:3000"

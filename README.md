@@ -63,7 +63,7 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-3. Access the admin portal:
+4. Access the admin portal:
 ```
 http://localhost
 ```
@@ -187,6 +187,7 @@ IP_WARMUP_ENABLED=true
 │   └── src/
 │       ├── App.js            # Routes, nav
 │       └── pages/
+│           ├── LoginPage.js
 │           ├── DashboardPage.js
 │           ├── DomainsPage.js
 │           ├── UsersPage.js
