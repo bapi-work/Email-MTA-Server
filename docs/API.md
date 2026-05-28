@@ -2,7 +2,7 @@
 
 ## Authentication
 
-All API endpoints (except login) require a Bearer token in the Authorization header:
+Most API endpoints require a Bearer token in the Authorization header. Public endpoints are `/health`, `/docs`, `/redoc`, `/openapi.json`, and the auth login/register/refresh routes:
 
 ```
 Authorization: Bearer <access_token>
@@ -377,8 +377,8 @@ Base path: `/api/v1/suppressions`
 
 Query Parameters:
 - `skip` (int): Default 0
-- `limit` (int): Default 50, max 500
-- `reason` (str): Filter by reason (`bounce`, `complaint`, `manual`, `unsubscribe`)
+- `limit` (int): Default 100, max 1000
+- `reason` (str): Filter by reason (`hard_bounce`, `soft_bounce`, `complaint`, `spam`, `manual`, `unsubscribe`)
 - `search` (str): Search by email
 
 ### Add Suppressions (Bulk)
@@ -387,13 +387,10 @@ Query Parameters:
 Request body:
 ```json
 {
-  "addresses": [
-    {
-      "email": "bounce@example.com",
-      "reason": "bounce",
-      "notes": "Hard bounce on 2026-04-04"
-    }
-  ]
+  "emails": ["bounce@example.com", "complaint@example.com"],
+  "reason": "hard_bounce",
+  "reason_detail": "Hard bounce on 2026-04-04",
+  "source": "manual"
 }
 ```
 
@@ -405,8 +402,9 @@ Response:
 {
   "email": "user@example.com",
   "suppressed": true,
-  "reason": "bounce",
-  "created_at": "2026-04-04T10:00:00Z"
+  "reason": "hard_bounce",
+  "source": "manual",
+  "added_at": "2026-04-04T10:00:00Z"
 }
 ```
 
@@ -417,10 +415,12 @@ Response:
 ```json
 {
   "total": 1520,
-  "bounce": 1100,
-  "complaint": 80,
-  "manual": 320,
-  "unsubscribe": 20
+  "by_reason": {
+    "hard_bounce": 1100,
+    "complaint": 80,
+    "manual": 320,
+    "unsubscribe": 20
+  }
 }
 ```
 
@@ -443,17 +443,22 @@ Response:
 ```json
 {
   "score": 87,
-  "grade": "B+",
+  "grade": "Good",
   "period_days": 7,
-  "total_sent": 45000,
-  "bounce_rate": 0.012,
-  "complaint_rate": 0.0008,
-  "delivery_rate": 0.988,
-  "breakdown": {
-    "delivery_score": 92,
-    "bounce_score": 85,
-    "complaint_score": 95,
-    "engagement_score": 78
+  "metrics": {
+    "total_sent": 45000,
+    "delivered": 44460,
+    "bounced": 540,
+    "failed": 0,
+    "bounce_rate": 1.2,
+    "complaint_rate": 0.08,
+    "delivery_rate": 98.8
+  },
+  "thresholds": {
+    "bounce_rate_warning": 2.0,
+    "bounce_rate_critical": 5.0,
+    "complaint_rate_warning": 0.05,
+    "complaint_rate_critical": 0.1
   }
 }
 ```
@@ -471,11 +476,11 @@ Response:
 {
   "recommendations": [
     {
-      "priority": "high",
-      "category": "bounce",
-      "title": "Bounce rate elevated",
-      "message": "Bounce rate is 3.5% — above 2% threshold. Clean your list.",
-      "action": "Review suppression list"
+      "severity": "warning",
+      "category": "bounce_rate",
+      "title": "Bounce Rate Approaching Warning Level",
+      "description": "Your bounce rate is 3.5%. Industry best practice keeps this below 2%.",
+      "action": "Review and clean your mailing list."
     }
   ]
 }
@@ -516,8 +521,10 @@ Request body:
 Response:
 ```json
 {
-  "message_id": "uuid",
-  "status": "queued",
+  "message_ids": ["<uuid@example.com>"],
+  "accepted": 1,
+  "rejected": 0,
+  "suppressed": 0,
   "queued_at": "2026-04-04T12:34:56Z"
 }
 ```
@@ -531,10 +538,9 @@ Response: Full message status including SMTP response codes and delivery timesta
 **GET** `/api/v1/send/logs`
 
 Query Parameters:
-- `skip` (int): Default 0
-- `limit` (int): Default 50
-- `message_id` (str): Filter by message ID
-- `status` (str): Filter by status
+- `page` (int): Default 1
+- `page_size` (int): Default 50
+- `status_filter` (str): Filter by status
 
 ---
 
@@ -548,12 +554,14 @@ Query Parameters:
 ```json
 {
   "name": "Gmail Route",
-  "match_type": "domain",
-  "match_value": "gmail.com",
-  "source_ip": "192.0.2.10",
-  "priority": 10,
+  "recipient_domain": "gmail.com",
+  "bind_address": "192.0.2.10",
+  "virtual_mta_name": "gmail-pool",
+  "priority_order": 10,
   "max_connections": 5,
-  "notes": "Gmail ISP limits"
+  "rate_limit_per_second": 25,
+  "retry_strategy": "exponential",
+  "description": "Gmail ISP limits"
 }
 ```
 
@@ -573,8 +581,9 @@ Query Parameters:
   "name": "My Webhook",
   "url": "https://example.com/webhook",
   "events": ["bounce", "complaint", "delivery"],
-  "secret": "optional-hmac-secret",
-  "active": true
+  "secret_key": "optional-hmac-secret",
+  "content_type": "application/json",
+  "is_active": true
 }
 ```
 
@@ -591,8 +600,8 @@ Query Parameters:
 **GET** `/api/v1/smtp/tracking` — get current tracking config
 ```json
 {
-  "open_tracking": true,
-  "click_tracking": true,
+  "open_tracking_enabled": true,
+  "click_tracking_enabled": true,
   "tracking_domain": "track.yourdomain.com"
 }
 ```
@@ -609,10 +618,14 @@ Query Parameters:
 ```json
 {
   "ip_address": "192.0.2.20",
-  "day_number": 1,
-  "daily_limit": 500,
-  "hourly_limit": 50,
-  "notes": "New IP warmup Day 1"
+  "start_date": "2026-04-04T00:00:00",
+  "schedule": {
+    "1": 200,
+    "3": 500,
+    "7": 1000,
+    "14": 5000
+  },
+  "notes": "New IP warmup"
 }
 ```
 
@@ -628,16 +641,16 @@ Query Parameters:
 
 Returns profiles for: Gmail, Yahoo, Outlook, Apple Mail, Comcast, Generic. Each includes:
 - `max_connections`
-- `max_messages_per_connection`
-- `rate_limit` (msgs/sec)
-- `retry_delay` (seconds)
+- `rate_limit_per_second`
+- `max_recipients_per_connection`
+- `retry_strategy`
 - `notes`
 
-**POST** `/api/v1/smtp/isp-profiles/apply` — apply a profile to a routing rule
+**POST** `/api/v1/smtp/isp-profiles/apply` — create a routing rule from an ISP profile
 ```json
 {
-  "profile_name": "gmail",
-  "routing_rule_id": 3
+  "isp": "gmail",
+  "recipient_domain": "gmail.com"
 }
 ```
 
@@ -647,7 +660,7 @@ Returns profiles for: Gmail, Yahoo, Outlook, Apple Mail, Comcast, Generic. Each 
 
 **GET** `/api/v1/smtp/simulator/scenarios` — list available test scenarios
 
-Scenarios: `success`, `bounce`, `complaint`, `block`, `slowdown`, `ooo`
+Scenarios: `delivery`, `bounce`, `soft_bounce`, `complaint`, `out_of_office`, `suppressed`
 
 **POST** `/api/v1/smtp/simulator/test`
 ```json
@@ -661,10 +674,11 @@ Scenarios: `success`, `bounce`, `complaint`, `block`, `slowdown`, `ooo`
 Response:
 ```json
 {
+  "simulation_id": "<sim-abc123@simulator.cloudmta>",
   "scenario": "bounce",
-  "simulated": true,
-  "expected_behavior": "Message will be treated as hard bounce",
-  "recommendation": "Verify suppression list adds this address automatically"
+  "simulated_smtp_response": "550 5.1.1 The email account does not exist",
+  "expected_final_status": "bounced",
+  "notes": "This is a simulation only. No real email was sent."
 }
 ```
 
@@ -678,10 +692,14 @@ Response:
 ```json
 {
   "name": "transactional",
-  "open_tracking": true,
-  "click_tracking": true,
-  "webhook_id": 1,
-  "notes": "For transactional emails"
+  "description": "For transactional emails",
+  "open_tracking_enabled": true,
+  "click_tracking_enabled": true,
+  "sending_enabled": true,
+  "max_bounce_rate": 0.1,
+  "max_complaint_rate": 0.001,
+  "dedicated_ips": ["192.0.2.30"],
+  "virtual_mta_name": "primary-pool"
 }
 ```
 

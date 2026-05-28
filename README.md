@@ -5,7 +5,7 @@ A production-ready, feature-rich SMTP server with admin portal, REST API, and en
 ## Features
 
 ### Core Delivery
-- **SMTP Protocol**: Full RFC 5321/5322 compliance — ports 25, 587, 465
+- **SMTP Protocol**: Full RFC 5321/5322 compliance — ports 25, 587, and 465 when TLS certificates are installed
 - **Bulk Email**: High-volume delivery with queue management and retry logic
 - **Dual Stack**: IPv4 & IPv6 with intelligent rotation
 - **Email Authentication**: SPF, DKIM, DMARC checking and signing
@@ -27,7 +27,7 @@ A production-ready, feature-rich SMTP server with admin portal, REST API, and en
 - **Click Tracking**: URL rewriting for click tracking
 
 ### Testing & Simulation
-- **Mailbox Simulator**: Test delivery scenarios — success, bounce, complaint, block, slowdown, OOO (SES Mailbox Simulator parity)
+- **Mailbox Simulator**: Test delivery scenarios — delivery, bounce, soft bounce, complaint, out-of-office, suppressed (SES Mailbox Simulator parity)
 
 ### HTTP Send API
 - **REST Send API**: Submit emails via HTTP POST — no SMTP client required (GreenArrow parity)
@@ -103,7 +103,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full production checklist.
 ┌─v──────────┐    ┌───────v───────┐    ┌──────────────────┐
 │ PostgreSQL │    │ Redis         │    │  SMTP Server     │
 │ Port 5432  │    │ Port 6379     │    │  Ports 25/587/465│
-│ 9 tables   │    │ Queue/cache   │    │  aiosmtpd        │
+│ 12 tables  │    │ Queue/cache   │    │  aiosmtpd        │
 └────────────┘    └───────────────┘    └──────────────────┘
 ```
 
@@ -143,7 +143,7 @@ All runtime configuration is managed via the `.env` file and the Settings UI. Ke
 
 ```env
 SECRET_KEY=your-jwt-secret
-POSTGRES_PASSWORD=your-db-password
+DB_PASSWORD=your-db-password
 REDIS_PASSWORD=your-redis-password
 SMTP_HOSTNAME=mail.yourdomain.com
 OPEN_TRACKING_ENABLED=true
@@ -160,7 +160,7 @@ IP_WARMUP_ENABLED=true
 - CORS with origin matching (no wildcard)
 - `server_tokens off`, security headers
 - Sessions auto-expire; idle auto-logout after 3 minutes
-- Change `SECRET_KEY`, `POSTGRES_PASSWORD`, and `REDIS_PASSWORD` before production use
+- Change `SECRET_KEY`, `DB_PASSWORD`, and `REDIS_PASSWORD` before production use
 
 ## Directory Structure
 

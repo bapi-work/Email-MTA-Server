@@ -3,9 +3,9 @@ services:
     image: postgres:15-alpine
     container_name: cloudmta_postgres
     environment:
-      POSTGRES_USER: cloudmta
-      POSTGRES_PASSWORD: CloudMTA2026!
-      POSTGRES_DB: cloudmta_db
+      POSTGRES_USER: ${DB_USER:-cloudmta}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-CloudMTA2026!}
+      POSTGRES_DB: ${DB_NAME:-cloudmta_db}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cloudmta"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,13 +25,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: cloudmta_redis
-    command: redis-server --appendonly yes --requirepass Redis2026!
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-Redis2026!}
     volumes:
       - redis_data:/data
     ports:
       - "6379:6379"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "Redis2026!", "--no-auth-warning", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-Redis2026!}", "--no-auth-warning", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,12 +44,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: cloudmta_backend
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://cloudmta:CloudMTA2026!@postgres:5432/cloudmta_db
-      REDIS_URL: redis://:Redis2026!@redis:6379/0
+      DATABASE_URL: postgresql://${DB_USER:-cloudmta}:${DB_PASSWORD:-CloudMTA2026!}@postgres:5432/${DB_NAME:-cloudmta_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-Redis2026!}@redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
-      DEBUG: ${DEBUG:-false}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
     depends_on:
@@ -74,11 +74,16 @@ services:
       context: ./smtp-server
       dockerfile: Dockerfile
     container_name: cloudmta_smtp
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://cloudmta:CloudMTA2026!@postgres:5432/cloudmta_db
-      REDIS_URL: redis://:Redis2026!@redis:6379/1
+      DATABASE_URL: postgresql://${DB_USER:-cloudmta}:${DB_PASSWORD:-CloudMTA2026!}@postgres:5432/${DB_NAME:-cloudmta_db}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_USER: ${DB_USER:-cloudmta}
+      DB_PASSWORD: ${DB_PASSWORD:-CloudMTA2026!}
+      DB_NAME: ${DB_NAME:-cloudmta_db}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-Redis2026!}@redis:6379/1
       API_BASE_URL: http://backend:8000
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SMTP_PORT: ${SMTP_PORT:-25}
       SMTP_TLS_PORT: ${SMTP_TLS_PORT:-587}
       SMTP_SSL_PORT: ${SMTP_SSL_PORT:-465}

@@ -75,7 +75,7 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 Before going live, complete all of the following in `.env`:
 
 - [ ] `SECRET_KEY` — generate a new random 64-char secret
-- [ ] `POSTGRES_PASSWORD` — change from default
+- [ ] `DB_PASSWORD` — change from the dev default to a strong random value
 - [ ] `REDIS_PASSWORD` — change from the dev default to a strong random value
 - [ ] `SMTP_HOSTNAME` — set to your actual mail server FQDN
 - [ ] `ENVIRONMENT=production`
@@ -96,10 +96,13 @@ Edit the `.env` file before deploying:
 SECRET_KEY=your-very-secure-secret-key-here
 
 # Configure database
-DATABASE_URL=postgresql://cloudmta:YOUR_SECURE_PASSWORD@postgres:5432/cloudmta_db
+DB_HOST=postgres
+DB_USER=cloudmta
+DB_PASSWORD=YOUR_SECURE_PASSWORD
+DB_NAME=cloudmta_db
 
 # Configure Redis
-REDIS_URL=redis://:YOUR_REDIS_PASSWORD@redis:6379/0
+REDIS_PASSWORD=YOUR_REDIS_PASSWORD
 
 # Set environment
 DEBUG=false
@@ -248,7 +251,8 @@ docker exec cloudmta_redis redis-cli -a YOUR_REDIS_PASSWORD --no-auth-warning pi
 
 ```bash
 telnet localhost 25
-# Should see: "220 cloudmta ESMTP"
+# Should see a CloudMTA SMTP banner, for example:
+# "220 mail.cloudmta.local CloudMTA ESMTP"
 ```
 
 ## Monitoring

@@ -17,6 +17,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
     PUBLIC_ROUTES = {
         "/health",
         "/docs",
+        "/redoc",
         "/openapi.json",
         "/api/v1/auth/login",
         "/api/v1/auth/register",

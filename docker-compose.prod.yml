@@ -23,7 +23,7 @@ services:
     environment:
       DEBUG: "false"
       LOG_LEVEL: "WARNING"
-    ports: []           # don't expose backend port directly in production
+    ports: !reset []    # don't expose backend port directly in production
     deploy:
       resources:
         limits:
@@ -38,7 +38,7 @@ services:
     environment:
       REACT_APP_ENV: production
       # Set REACT_APP_API_URL to your public API URL if different from '/'
-    ports: []           # served exclusively through nginx
+    ports: !reset []    # served exclusively through nginx
     restart: unless-stopped
     deploy:
       resources:
@@ -48,7 +48,7 @@ services:
 
   # ─── PostgreSQL: no external port exposure ───────────────────────────
   postgres:
-    ports: []
+    ports: !reset []
     restart: unless-stopped
     deploy:
       resources:
@@ -57,7 +57,7 @@ services:
 
   # ─── Redis: no external port exposure ───────────────────────────────
   redis:
-    ports: []
+    ports: !reset []
     restart: unless-stopped
     deploy:
       resources:

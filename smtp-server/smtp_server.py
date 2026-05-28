@@ -26,6 +26,7 @@ DB_USER = os.getenv("DB_USER", "cloudmta")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "CloudMTA2026!")
 DB_NAME = os.getenv("DB_NAME", "cloudmta_db")
 REDIS_URL = os.getenv("REDIS_URL", "redis://:Redis2026!@redis:6379/1")
+SMTP_HOSTNAME = os.getenv("SMTP_HOSTNAME", "cloudmta")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 25))
 SMTP_TLS_PORT = int(os.getenv("SMTP_TLS_PORT", 587))
 SMTP_SSL_PORT = int(os.getenv("SMTP_SSL_PORT", 465))
@@ -312,7 +313,12 @@ class SMTPServer:
         loop = asyncio.get_event_loop()
 
         def factory():
-            return CloudMTASMTP(handler, self.db)
+            return CloudMTASMTP(
+                handler,
+                self.db,
+                hostname=SMTP_HOSTNAME,
+                ident="CloudMTA ESMTP",
+            )
 
         server = await loop.create_server(
             factory,

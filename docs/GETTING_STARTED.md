@@ -258,7 +258,7 @@ Suppressed addresses are never delivered to — they are checked before sending.
 1. Go to **Suppression List** section
 2. Add addresses manually or in bulk
 3. Check if an address is suppressed using the search box
-4. View totals by reason (bounce, complaint, manual, unsubscribe)
+4. View totals by reason (`hard_bounce`, `soft_bounce`, `complaint`, `spam`, `manual`, `unsubscribe`)
 
 **Via API:**
 ```bash
@@ -266,7 +266,7 @@ Suppressed addresses are never delivered to — they are checked before sending.
 curl -X POST http://localhost/api/v1/suppressions \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"addresses": [{"email": "bad@example.com", "reason": "bounce"}]}'
+  -d '{"emails": ["bad@example.com"], "reason": "hard_bounce", "reason_detail": "Hard bounce"}'
 
 # Check if suppressed
 curl "http://localhost/api/v1/suppressions/check?email=bad@example.com" \
@@ -284,8 +284,8 @@ Use IP Warmup to ramp up a new sending IP over time and avoid ISP blocks.
 **Via Admin Portal:**
 1. Go to **Settings** → **IP Warmup** tab
 2. Add a schedule entry for your new IP
-3. Set the day number and daily limit (e.g., Day 1 = 500 emails)
-4. Enable the schedule and add entries for subsequent days
+3. Set the warmup schedule map (for example, day 1 = 200 emails, day 3 = 500 emails)
+4. Enable the schedule and adjust future day limits as needed
 
 **Via API:**
 ```bash
@@ -294,9 +294,13 @@ curl -X POST http://localhost/api/v1/smtp/warmup \
   -H "Content-Type: application/json" \
   -d '{
     "ip_address": "192.0.2.20",
-    "day_number": 1,
-    "daily_limit": 500,
-    "hourly_limit": 50
+    "schedule": {
+      "1": 200,
+      "3": 500,
+      "7": 1000,
+      "14": 5000
+    },
+    "notes": "New IP warmup"
   }'
 ```
 
@@ -418,7 +422,7 @@ docker-compose logs smtp-server
 telnet localhost 25
 ```
 
-Should see: `220 cloudmta ESMTP`
+Should see a CloudMTA SMTP banner, for example: `220 mail.cloudmta.local CloudMTA ESMTP`
 
 ### Authentication fails
 

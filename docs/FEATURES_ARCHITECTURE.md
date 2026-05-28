@@ -130,7 +130,7 @@
 
 ### 16. Mailbox Simulator
 - **SES Mailbox Simulator parity** — test delivery outcomes without real recipients
-- **6 scenarios**: `success`, `bounce`, `complaint`, `block`, `slowdown`, `ooo`
+- **6 scenarios**: `delivery`, `bounce`, `soft_bounce`, `complaint`, `out_of_office`, `suppressed`
 - **Safe testing**: never sends real mail
 - **Recommendations**: each scenario includes suggested remediation steps
 
@@ -237,7 +237,7 @@
 
 ### Database Schema
 
-All tables are auto-created at startup via SQLAlchemy `Base.metadata.create_all`:
+Docker initializes the base schema, and SQLAlchemy creates/updates application-managed tables at backend startup:
 
 | Table | Purpose |
 |---|---|
@@ -245,6 +245,8 @@ All tables are auto-created at startup via SQLAlchemy `Base.metadata.create_all`
 | `domains` | Domains with SPF/DKIM/DMARC config |
 | `messages` | Queued/sent messages with delivery status |
 | `api_logs` | API request audit log |
+| `bounces` | Bounce tracking records linked to messages |
+| `ip_addresses` | User-owned sending IP pool records |
 | `routing_rules` | Virtual MTA-style routing rules |
 | `webhooks` | Event webhook endpoint definitions |
 | `suppression_list` | Suppressed email addresses |
