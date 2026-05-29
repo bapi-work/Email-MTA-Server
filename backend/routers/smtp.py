@@ -73,11 +73,32 @@ def _detect_public_ipv6() -> str:
     return ""
 
 
+def _is_valid_fqdn(hostname: str) -> bool:
+    """Return True if hostname looks like a real FQDN (has dots, not a hex container ID)."""
+    if not hostname or '.' not in hostname:
+        return False
+    # Docker container IDs are 12 hex chars with no dots
+    import re
+    if re.fullmatch(r'[0-9a-f]{12}', hostname):
+        return False
+    return True
+
+
 def _get_hostname() -> str:
-    try:
-        return socket.getfqdn()
-    except Exception:
+    """Return the best available hostname for DNS record generation.
+
+    Prefers the explicitly configured SMTP_HOSTNAME (an admin-supplied FQDN) over
+    socket.getfqdn(), which inside Docker returns the container ID.
+    """
+    if _is_valid_fqdn(settings.SMTP_HOSTNAME):
         return settings.SMTP_HOSTNAME
+    try:
+        detected = socket.getfqdn()
+        if _is_valid_fqdn(detected):
+            return detected
+    except Exception:
+        pass
+    return settings.SMTP_HOSTNAME
 
 
 # ─────────────────────────────────────────────

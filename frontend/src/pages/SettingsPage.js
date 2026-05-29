@@ -19,6 +19,31 @@ import axios from 'axios';
 
 const { Text } = Typography;
 
+// ─────────────────────────────────────────────
+//  Hostname validation helpers
+// ─────────────────────────────────────────────
+
+/** Returns true if the string looks like a real FQDN for DNS record use. */
+const isValidFQDN = (h) => {
+    if (!h || !h.includes('.')) return false;
+    // Docker container IDs are 12 hex chars with no dots
+    if (/^[0-9a-f]{12}$/i.test(h)) return false;
+    // Reject bare local hostnames
+    if (h.endsWith('.local') || h === 'localhost') return false;
+    return true;
+};
+
+/**
+ * Pick the best hostname for DNS record display.
+ * Prefers configured_hostname (set by admin via SMTP_HOSTNAME env var) over
+ * the detected hostname which inside Docker is the container ID.
+ */
+const getDisplayHostname = (serverInfo) => {
+    if (isValidFQDN(serverInfo?.configured_hostname)) return serverInfo.configured_hostname;
+    if (isValidFQDN(serverInfo?.hostname)) return serverInfo.hostname;
+    return null;
+};
+
 const C = {
     primary: '#4f46e5',
     success: '#10b981',
@@ -702,8 +727,15 @@ const SettingsPage = () => {
             <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 {[
                     {
-                        label: 'Hostname', value: serverInfo?.hostname || serverInfo?.configured_hostname || '—',
-                        bg: '#f8fafc', border: '#e2e8f0', color: '#0f172a'
+                        label: 'Hostname',
+                        value: getDisplayHostname(serverInfo) || serverInfo?.configured_hostname || '—',
+                        fallback: null,
+                        bg: getDisplayHostname(serverInfo) ? '#f8fafc' : '#fefce8',
+                        border: getDisplayHostname(serverInfo) ? '#e2e8f0' : '#fde68a',
+                        color: '#0f172a',
+                        note: !getDisplayHostname(serverInfo) && serverInfo?.hostname
+                            ? `Detected: ${serverInfo.hostname} (container ID — set SMTP_HOSTNAME env var)`
+                            : null
                     },
                     {
                         label: 'Public IPv4', value: serverInfo?.public_ipv4, fallback: 'Not detected',
@@ -732,6 +764,13 @@ const SettingsPage = () => {
                                 <Button size="small" type="text" icon={<CopyOutlined />}
                                     onClick={() => copyToClipboard(c.copy)}
                                     style={{ marginTop: 4, padding: '0 4px', color: '#94a3b8', height: 20 }} />
+                            )}
+                            {c.note && (
+                                <Tooltip title={c.note}>
+                                    <div style={{ fontSize: 11, color: '#b45309', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
+                                        <WarningOutlined style={{ fontSize: 11 }} /> Not a valid domain
+                                    </div>
+                                </Tooltip>
                             )}
                         </div>
                     </Col>
@@ -899,8 +938,22 @@ const SettingsPage = () => {
         </div>
     );
 
-    const renderAuth = () => (
+    const renderAuth = () => {
+        const displayHostname = getDisplayHostname(serverInfo);
+        return (
         <div>
+            {!displayHostname && (
+                <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+                    message="Hostname not configured"
+                    description={
+                        <span>
+                            The server hostname is not set to a valid domain name — DNS record templates below will show placeholders.
+                            Set the <code>SMTP_HOSTNAME</code> environment variable to your mail server's FQDN (e.g.{' '}
+                            <code>mail.yourdomain.com</code>) and restart the server.
+                        </span>
+                    }
+                />
+            )}
             <Alert type="info" showIcon message="Email Authentication — SPF · DKIM · DMARC"
                 description="These global settings control how CloudMTA handles authentication for all outgoing messages. Per-domain settings are in the Domains section."
                 style={{ marginBottom: 24 }} />
@@ -932,7 +985,7 @@ const SettingsPage = () => {
                 <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Recommended DMARC record:</div>
                     <code style={{ fontSize: 12, color: C.primary }}>
-                        v=DMARC1; p=quarantine; rua=mailto:dmarc@{serverInfo?.hostname || 'yourdomain.com'}; pct=100
+                        v=DMARC1; p=quarantine; rua=mailto:dmarc@{displayHostname || 'yourdomain.com'}; pct=100
                     </code>
                 </div>
             </Section>
@@ -944,7 +997,8 @@ const SettingsPage = () => {
                 <ToggleRow label="Verify TLS Certificate" desc="Strictly validate remote server's TLS certificate" checked={deliveryConfig?.verify_tls_cert ?? false} />
             </Section>
         </div>
-    );
+        );
+    };
 
     const renderDelivery = () => (
         <div>
@@ -996,7 +1050,7 @@ const SettingsPage = () => {
                         </Col>
                         <Col xs={24} sm={12} md={8}>
                             <Form.Item label="EHLO Hostname" name="ehlo_hostname">
-                                <Input placeholder={serverInfo?.hostname || 'mail.yourdomain.com'} />
+                                <Input placeholder={getDisplayHostname(serverInfo) || 'mail.yourdomain.com'} />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -1479,8 +1533,21 @@ const SettingsPage = () => {
         </div>
     );
 
-    const renderTracking = () => (
+    const renderTracking = () => {
+        const displayHostname = getDisplayHostname(serverInfo);
+        return (
         <div>
+            {!displayHostname && (
+                <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+                    message="Hostname not configured"
+                    description={
+                        <span>
+                            CNAME target cannot be determined — set <code>SMTP_HOSTNAME</code> to your server's FQDN (e.g.{' '}
+                            <code>mail.yourdomain.com</code>) so the tracking CNAME record shows the correct target.
+                        </span>
+                    }
+                />
+            )}
             <Alert type="info" showIcon message="Open & Click Tracking — Transparent pixel tracking"
                 description="CloudMTA injects a 1×1 tracking pixel to detect email opens and rewrites links for click tracking."
                 style={{ marginBottom: 24 }} />
@@ -1526,11 +1593,12 @@ const SettingsPage = () => {
                     </Col>
                 </Row>
                 <div style={{ marginTop: 10, fontSize: 12, color: '#64748b' }}>
-                    Add a CNAME: <code>track.yourdomain.com → {serverInfo?.hostname || 'your-server-hostname'}</code>
+                    Add a CNAME: <code>track.yourdomain.com → {displayHostname || 'your-server-hostname'}</code>
                 </div>
             </Section>
         </div>
-    );
+        );
+    };
 
     const renderSimulator = () => (
         <div>
