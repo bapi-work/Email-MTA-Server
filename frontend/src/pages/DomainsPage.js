@@ -28,18 +28,18 @@ const DNS_HELP = {
         valueTemplate: (pubKey) => pubKey ? `v=DKIM1; k=rsa; p=${pubKey}` : 'Generated after domain creation'
     },
     dmarc: {
-        title: 'DMARC Record (TXT)',
-        desc: 'DMARC tells receivers what to do with emails that fail SPF/DKIM validation.',
+        title: 'DMARC Record (TXT) — Optional',
+        desc: 'DMARC tells receivers what to do with emails that fail SPF/DKIM validation. Not required for domain verification.',
         type: 'TXT',
         nameTemplate: (domain) => `_dmarc.${domain}`,
-        valueTemplate: () => 'v=DMARC1; p=quarantine; rua=mailto:dmarc@yourdomain.com; ruf=mailto:dmarc@yourdomain.com; pct=100'
+        valueTemplate: (domain) => `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain}; ruf=mailto:dmarc@${domain}; pct=100`
     },
     mx: {
         title: 'MX Record',
         desc: 'MX records define the mail server responsible for receiving emails for your domain.',
         type: 'MX',
         nameTemplate: (domain) => domain,
-        valueTemplate: () => '10 mail.yourdomain.com'
+        valueTemplate: (domain) => `10 mail.${domain}`
     }
 };
 
@@ -77,14 +77,19 @@ const CopyBox = ({ text, label }) => {
     );
 };
 
-const DnsSection = ({ title, desc, name, value, verified }) => (
+const DnsSection = ({ title, desc, name, value, verified, optional }) => (
     <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{title}</span>
+                {optional && <Tag color="default" style={{ fontSize: 11 }}>Optional</Tag>}
+            </div>
             {verified !== undefined && (
                 verified
                     ? <Tag color="success" icon={<CheckCircleOutlined />}>Verified</Tag>
-                    : <Tag color="warning" icon={<ExclamationCircleOutlined />}>Not Verified</Tag>
+                    : optional
+                        ? <Tag color="default" icon={<ExclamationCircleOutlined />}>Not Set</Tag>
+                        : <Tag color="warning" icon={<ExclamationCircleOutlined />}>Not Verified</Tag>
             )}
         </div>
         <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px' }}>{desc}</p>
@@ -184,11 +189,10 @@ const DomainsPage = () => {
             const res = await axios.get(`/api/v1/domains/${selectedDomain.id}/verify-dns`);
             setVerifyResult(res.data);
             fetchDomains();
-            const allGood = Object.values(res.data).every(v => v.verified);
-            if (allGood) {
-                message.success('All DNS records verified!');
+            if (res.data?.spf?.verified) {
+                message.success('SPF verified — domain is active! DKIM and DMARC are optional but recommended.');
             } else {
-                message.warning('Some DNS records are not yet verified. DNS propagation may take up to 48 hours.');
+                message.warning('SPF not yet verified. DNS propagation can take up to 48 hours after adding the TXT record.');
             }
         } catch (err) {
             message.error(err.response?.data?.detail || 'DNS verification failed');
@@ -272,7 +276,7 @@ const DomainsPage = () => {
             label: (
                 <span>
                     {verifyResult?.spf?.verified ? <CheckCircleOutlined style={{ color: '#10b981' }} /> : <ExclamationCircleOutlined style={{ color: '#f59e0b' }} />}
-                    &nbsp;SPF
+                    &nbsp;SPF <Tag color="red" style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px' }}>Required</Tag>
                 </span>
             ),
             children: (
@@ -336,8 +340,9 @@ const DomainsPage = () => {
                     title={DNS_HELP.dmarc.title}
                     desc={DNS_HELP.dmarc.desc}
                     name={DNS_HELP.dmarc.nameTemplate(selectedDomain.domain_name)}
-                    value={DNS_HELP.dmarc.valueTemplate()}
+                    value={DNS_HELP.dmarc.valueTemplate(selectedDomain.domain_name)}
                     verified={verifyResult?.dmarc?.verified}
+                    optional
                 />
             )
         },
@@ -349,7 +354,8 @@ const DomainsPage = () => {
                     title={DNS_HELP.mx.title}
                     desc={DNS_HELP.mx.desc}
                     name={DNS_HELP.mx.nameTemplate(selectedDomain.domain_name)}
-                    value={DNS_HELP.mx.valueTemplate()}
+                    value={DNS_HELP.mx.valueTemplate(selectedDomain.domain_name)}
+                    optional
                 />
             )
         }
@@ -463,16 +469,21 @@ const DomainsPage = () => {
                             border: '1px solid #e2e8f0'
                         }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b', marginRight: 4 }}>Verification Results:</span>
-                            <StatusBadge verified={verifyResult?.spf?.verified} label="SPF" />
-                            <StatusBadge verified={verifyResult?.dkim?.verified} label="DKIM" />
-                            <StatusBadge verified={verifyResult?.dmarc?.verified} label="DMARC" />
+                            <StatusBadge verified={verifyResult?.spf?.verified} label="SPF (Required)" />
+                            <StatusBadge verified={verifyResult?.dkim?.verified} label="DKIM (Optional)" />
+                            <StatusBadge verified={verifyResult?.dmarc?.verified} label="DMARC (Optional)" />
                         </div>
                     </div>
                 )}
 
+                <Alert
+                    type="info"
+                    showIcon
+                    message={<span><strong>SPF is required</strong> to verify your domain and start sending. DKIM and DMARC are optional but strongly recommended for deliverability.</span>}
+                    style={{ marginBottom: 12 }}
+                />
                 <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
-                    Add the following DNS records to your domain's DNS provider to enable email sending and authentication.
-                    Copy each record value exactly as shown.
+                    Add the DNS records below to your domain registrar or DNS provider. Copy each value exactly as shown.
                 </p>
 
                 <Tabs items={dnsTabItems} />

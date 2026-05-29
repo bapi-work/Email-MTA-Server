@@ -196,34 +196,54 @@ async def verify_dns_records(
         "dkim": {"verified": False, "public_key": domain.dkim_public_key},
         "dmarc": {"verified": False, "record": None}
     }
-    
+
     try:
-        # Check SPF
-        if domain.spf_record:
-            try:
-                answers = dns.resolver.resolve(domain.domain_name, 'TXT')
-                for rdata in answers:
-                    if rdata.to_text().startswith('"v=spf1'):
-                        domain.spf_verified = True
-                        verification_status["spf"]["verified"] = True
-                        domain.spf_verified_at = func.now()
-                        break
-            except:
-                pass
-        
-        # Check DKIM
+        # Check SPF (required — marks domain verified/active when present)
+        try:
+            answers = dns.resolver.resolve(domain.domain_name, 'TXT')
+            for rdata in answers:
+                txt = rdata.to_text().strip('"')
+                if txt.startswith('v=spf1'):
+                    domain.spf_verified = True
+                    domain.spf_record = txt
+                    domain.spf_verified_at = func.now()
+                    verification_status["spf"]["verified"] = True
+                    verification_status["spf"]["record"] = txt
+                    break
+        except Exception:
+            pass
+
+        # Mark domain active as soon as SPF is verified (DKIM and DMARC are optional)
+        if verification_status["spf"]["verified"]:
+            domain.status = DomainStatus.ACTIVE
+            domain.is_verified = True
+
+        # Check DKIM (optional)
         if domain.dkim_public_key:
             dkim_host = f"{domain.dkim_selector}._domainkey.{domain.domain_name}"
             try:
                 answers = dns.resolver.resolve(dkim_host, 'TXT')
                 if answers:
                     verification_status["dkim"]["verified"] = True
-            except:
+            except Exception:
                 pass
-        
+
+        # Check DMARC (optional)
+        try:
+            dmarc_host = f"_dmarc.{domain.domain_name}"
+            answers = dns.resolver.resolve(dmarc_host, 'TXT')
+            for rdata in answers:
+                txt = rdata.to_text().strip('"')
+                if txt.startswith('v=DMARC1'):
+                    verification_status["dmarc"]["verified"] = True
+                    verification_status["dmarc"]["record"] = txt
+                    break
+        except Exception:
+            pass
+
         db.commit()
         return verification_status
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
