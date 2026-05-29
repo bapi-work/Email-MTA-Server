@@ -500,6 +500,48 @@ const WebhookModal = ({ open, editing, onClose, onSaved }) => {
 };
 
 // ─────────────────────────────────────────────
+//  DNS Record display box with copy button
+// ─────────────────────────────────────────────
+const DnsRecordBox = ({ label, domain, dnsName, type, value, onCopy, dim, note }) => (
+    <div style={{ marginTop: 12, opacity: dim ? 0.6 : 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+                {label} <code style={{ color: '#4f46e5', fontWeight: 600 }}>{domain}</code>
+            </span>
+            <Tag style={{ fontFamily: 'monospace', fontSize: 11 }}>{type}</Tag>
+        </div>
+        <div style={{
+            background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8,
+            padding: '10px 12px', display: 'flex', gap: 10, alignItems: 'flex-start'
+        }}>
+            <div style={{ flex: 1 }}>
+                {dnsName !== domain && (
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>
+                        Name: <code style={{ color: '#475569' }}>{dnsName}</code>
+                    </div>
+                )}
+                <code style={{ fontSize: 12, color: '#4f46e5', wordBreak: 'break-all', display: 'block' }}>
+                    {value}
+                </code>
+            </div>
+            <Tooltip title="Copy value">
+                <Button
+                    size="small" type="text" icon={<CopyOutlined />}
+                    onClick={() => onCopy(value)}
+                    style={{ flexShrink: 0, color: '#94a3b8', marginTop: 2 }}
+                />
+            </Tooltip>
+        </div>
+        {note && (
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 6, display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                <InfoCircleOutlined style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>{note}</span>
+            </div>
+        )}
+    </div>
+);
+
+// ─────────────────────────────────────────────
 //  EmptyState helper
 // ─────────────────────────────────────────────
 const EmptyState = ({ icon, title, desc, action }) => (
@@ -540,6 +582,8 @@ const SettingsPage = () => {
 
     const [warmupSchedules, setWarmupSchedules] = useState([]);
     const [warmupModal, setWarmupModal] = useState({ open: false, editing: null });
+    const [domains, setDomains] = useState([]);
+    const [authDomain, setAuthDomain] = useState('');
     const [ispProfiles, setIspProfiles] = useState([]);
     const [simulatorScenarios, setSimulatorScenarios] = useState([]);
     const [simulatorResult, setSimulatorResult] = useState(null);
@@ -553,7 +597,7 @@ const SettingsPage = () => {
     const fetchAll = useCallback(async () => {
         try {
             const [srvRes, smtpRes, authRes, ipRes, delRes, bncRes, routeRes, hookRes, trackRes,
-                warmupRes, ispRes, simRes, csRes] = await Promise.allSettled([
+                warmupRes, ispRes, simRes, csRes, domainsRes] = await Promise.allSettled([
                 axios.get('/api/v1/smtp/server-info'),
                 axios.get('/api/v1/smtp/config'),
                 axios.get('/api/v1/smtp/authentication'),
@@ -567,6 +611,7 @@ const SettingsPage = () => {
                 axios.get('/api/v1/smtp/isp-profiles'),
                 axios.get('/api/v1/smtp/simulator/scenarios'),
                 axios.get('/api/v1/smtp/configuration-sets'),
+                axios.get('/api/v1/domains?limit=100'),
             ]);
 
             if (srvRes.status === 'fulfilled') setServerInfo(srvRes.value.data);
@@ -617,6 +662,15 @@ const SettingsPage = () => {
             if (ispRes.status === 'fulfilled') setIspProfiles(ispRes.value.data?.profiles || []);
             if (simRes.status === 'fulfilled') setSimulatorScenarios(simRes.value.data?.scenarios || []);
             if (csRes.status === 'fulfilled') setConfigSets(csRes.value.data || []);
+            if (domainsRes.status === 'fulfilled') {
+                const list = domainsRes.value.data || [];
+                setDomains(list);
+                // Pre-select the first verified (or any) domain for DNS record templates
+                if (list.length > 0 && !authDomain) {
+                    const verified = list.find(d => d.is_verified) || list[0];
+                    setAuthDomain(verified.domain_name);
+                }
+            }
         } finally {
             setLoading(false);
         }
@@ -939,58 +993,136 @@ const SettingsPage = () => {
     );
 
     const renderAuth = () => {
-        const displayHostname = getDisplayHostname(serverInfo);
+        const activeDomain = authDomain.trim();
+        const domainPlaceholder = activeDomain || 'yourdomain.com';
+        const spfIPs = [
+            serverInfo?.public_ipv4 ? `ip4:${serverInfo.public_ipv4}` : null,
+            serverInfo?.public_ipv6 ? `ip6:${serverInfo.public_ipv6}` : null,
+        ].filter(Boolean).join(' ') || 'ip4:YOUR_SERVER_IP';
+        const spfRecord = `v=spf1 mx a ${spfIPs} ~all`;
+        const dkimSelector = domains.find(d => d.domain_name === activeDomain)?.dkim_selector || 'default';
+        const dmarcRecord = `v=DMARC1; p=quarantine; rua=mailto:dmarc@${domainPlaceholder}; ruf=mailto:dmarc@${domainPlaceholder}; pct=100`;
+        const dkimDnsName = `${dkimSelector}._domainkey.${domainPlaceholder}`;
+
         return (
         <div>
-            {!displayHostname && (
-                <Alert type="warning" showIcon style={{ marginBottom: 16 }}
-                    message="Hostname not configured"
-                    description={
-                        <span>
-                            The server hostname is not set to a valid domain name — DNS record templates below will show placeholders.
-                            Set the <code>SMTP_HOSTNAME</code> environment variable to your mail server's FQDN (e.g.{' '}
-                            <code>mail.yourdomain.com</code>) and restart the server.
-                        </span>
-                    }
-                />
-            )}
+            {/* Domain selector — drives all DNS record templates on this tab */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20,
+                padding: '14px 16px', background: '#f0f4ff', borderRadius: 10,
+                border: '1px solid #c7d2fe'
+            }}>
+                <div style={{ flexShrink: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#4338ca', marginBottom: 4 }}>Domain for DNS records</div>
+                    <div style={{ fontSize: 11, color: '#6366f1' }}>Select or type the domain to generate SPF · DKIM · DMARC records for</div>
+                </div>
+                <div style={{ flex: 1, maxWidth: 360 }}>
+                    <Select
+                        showSearch
+                        allowClear
+                        value={activeDomain || undefined}
+                        placeholder="Select a domain or type one…"
+                        style={{ width: '100%' }}
+                        onChange={(v) => setAuthDomain(v || '')}
+                        dropdownRender={(menu) => (
+                            <div>
+                                {menu}
+                                <div style={{ padding: '8px 12px', borderTop: '1px solid #f0f0f0' }}>
+                                    <Input
+                                        size="small"
+                                        placeholder="Or type a domain manually…"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                setAuthDomain(e.target.value.trim());
+                                                e.target.value = '';
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    >
+                        {domains.map(d => (
+                            <Select.Option key={d.domain_name} value={d.domain_name}>
+                                <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{d.domain_name}</span>
+                                {d.is_verified
+                                    ? <Tag color="success" style={{ marginLeft: 8, fontSize: 10 }}>Verified</Tag>
+                                    : <Tag color="warning" style={{ marginLeft: 8, fontSize: 10 }}>Pending</Tag>}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </div>
+                {!activeDomain && (
+                    <Tag color="warning" icon={<WarningOutlined />} style={{ flexShrink: 0 }}>
+                        Select a domain to see exact DNS records
+                    </Tag>
+                )}
+                {activeDomain && (
+                    <Tag color="success" icon={<CheckCircleOutlined />} style={{ flexShrink: 0, fontFamily: 'monospace' }}>
+                        {activeDomain}
+                    </Tag>
+                )}
+            </div>
+
             <Alert type="info" showIcon message="Email Authentication — SPF · DKIM · DMARC"
-                description="These global settings control how CloudMTA handles authentication for all outgoing messages. Per-domain settings are in the Domains section."
+                description="These global settings control how CloudMTA handles authentication for all outgoing messages. Per-domain settings are also available in the Domains section."
                 style={{ marginBottom: 24 }} />
 
+            {/* ── SPF ── */}
             <Section icon={<SafetyCertificateOutlined />} title="SPF (Sender Policy Framework)" subtitle="Validates that your server is authorised to send for a domain">
                 <ToggleRow label="SPF Checking (Inbound)" desc="Verify SPF record of incoming connections"
                     checked={authConfig?.spf_check_enabled} onChange={(v) => toggleAuth('spf_enabled', v)} />
-                <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>SPF record template:</div>
-                    <code style={{ fontSize: 12, color: C.primary }}>
-                        v=spf1 mx a ip4:<strong>{serverInfo?.public_ipv4 || 'YOUR_IP'}</strong>{serverInfo?.public_ipv6 ? ` ip6:${serverInfo.public_ipv6}` : ''} ~all
-                    </code>
-                </div>
+                <DnsRecordBox
+                    label="TXT record — add to DNS for"
+                    domain={domainPlaceholder}
+                    dnsName={domainPlaceholder}
+                    type="TXT"
+                    value={spfRecord}
+                    onCopy={copyToClipboard}
+                    dim={!activeDomain}
+                />
             </Section>
             <Divider />
 
+            {/* ── DKIM ── */}
             <Section icon={<SafetyCertificateOutlined />} title="DKIM (DomainKeys Identified Mail)" subtitle="Adds a cryptographic signature to outbound messages">
                 <ToggleRow label="DKIM Signing (Outbound)" desc="Cryptographically sign all outgoing messages"
                     checked={authConfig?.dkim_signing_enabled} onChange={(v) => toggleAuth('dkim_enabled', v)} />
-                <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>DKIM keys are generated <strong>per domain</strong>. Go to Domains → DNS Setup → DKIM tab.</div>
-                </div>
+                <DnsRecordBox
+                    label="TXT record name (DKIM public key goes here)"
+                    domain={domainPlaceholder}
+                    dnsName={dkimDnsName}
+                    type="TXT"
+                    value="v=DKIM1; k=rsa; p=<public-key> — view per-domain key in Domains → DNS Setup → DKIM"
+                    onCopy={copyToClipboard}
+                    dim={!activeDomain}
+                    note="The actual DKIM public key is generated per domain. Go to Domains → DNS Setup → DKIM tab to copy your full TXT record."
+                />
             </Section>
             <Divider />
 
+            {/* ── DMARC ── */}
             <Section icon={<SafetyCertificateOutlined />} title="DMARC" subtitle="Policy for how receivers handle failed SPF/DKIM">
                 <ToggleRow label="DMARC Checking (Inbound)" desc="Apply DMARC policy to incoming messages"
                     checked={authConfig?.dmarc_enabled} onChange={(v) => toggleAuth('dmarc_enabled', v)} />
-                <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6 }}>Recommended DMARC record:</div>
-                    <code style={{ fontSize: 12, color: C.primary }}>
-                        v=DMARC1; p=quarantine; rua=mailto:dmarc@{displayHostname || 'yourdomain.com'}; pct=100
-                    </code>
-                </div>
+                <DnsRecordBox
+                    label="TXT record — add to DNS for"
+                    domain={`_dmarc.${domainPlaceholder}`}
+                    dnsName={`_dmarc.${domainPlaceholder}`}
+                    type="TXT"
+                    value={dmarcRecord}
+                    onCopy={copyToClipboard}
+                    dim={!activeDomain}
+                    note="Policy options: none (monitor only) → quarantine → reject (strictest). Start with 'none' while testing, then tighten once you confirm SPF and DKIM are passing."
+                />
+                {!activeDomain && (
+                    <Alert type="warning" showIcon style={{ marginTop: 12 }}
+                        message="Select a domain above to generate the exact DMARC record for your domain." />
+                )}
             </Section>
             <Divider />
 
+            {/* ── TLS ── */}
             <Section icon={<GlobalOutlined />} title="TLS / Encryption" subtitle="Transport layer security for SMTP connections">
                 <ToggleRow label="Prefer TLS (STARTTLS)" desc="Upgrade connections to TLS when available" checked={deliveryConfig?.tls_preferred ?? true} />
                 <ToggleRow label="Require TLS" desc="Reject connections that cannot upgrade to TLS" checked={deliveryConfig?.tls_required ?? false} />
@@ -1535,6 +1667,8 @@ const SettingsPage = () => {
 
     const renderTracking = () => {
         const displayHostname = getDisplayHostname(serverInfo);
+        const trackingDomain = authDomain.trim() || 'yourdomain.com';
+        const cnameTarget = displayHostname || 'your-mail-server-hostname';
         return (
         <div>
             {!displayHostname && (
@@ -1592,9 +1726,16 @@ const SettingsPage = () => {
                         }}>Save</Button>
                     </Col>
                 </Row>
-                <div style={{ marginTop: 10, fontSize: 12, color: '#64748b' }}>
-                    Add a CNAME: <code>track.yourdomain.com → {displayHostname || 'your-server-hostname'}</code>
-                </div>
+                <DnsRecordBox
+                    label="CNAME record — point your tracking subdomain to"
+                    domain={`track.${trackingDomain}`}
+                    dnsName={`track.${trackingDomain}`}
+                    type="CNAME"
+                    value={cnameTarget}
+                    onCopy={copyToClipboard}
+                    dim={!authDomain.trim() || !displayHostname}
+                    note={!authDomain.trim() ? 'Select a domain in the Authentication tab to populate this record.' : undefined}
+                />
             </Section>
         </div>
         );
