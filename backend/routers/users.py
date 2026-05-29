@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import secrets
+import bcrypt
 from database import get_db, User, UserRole
-from schemas import UserResponse, APIKeyResponse, APIKeyCreate
+from schemas import UserResponse, APIKeyResponse, APIKeyCreate, RegisterRequest
 from config import settings
 
 router = APIRouter()
@@ -38,6 +39,36 @@ def is_admin(current_user: User = Depends(get_current_user)):
             detail="Admin access required"
         )
     return current_user
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    request: RegisterRequest,
+    current_user: User = Depends(is_admin),
+    db: Session = Depends(get_db)
+):
+    """Create a new user (admin only)"""
+    if db.query(User).filter(User.email == request.email).first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+    if db.query(User).filter(User.username == request.username).first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
+
+    user = User(
+        username=request.username,
+        email=request.email,
+        hashed_password=_hash_password(request.password),
+        full_name=request.full_name,
+        role=UserRole.USER,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
 
 @router.get("/", response_model=list[UserResponse])
 async def list_users(
