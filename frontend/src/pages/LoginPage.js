@@ -129,11 +129,12 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                             borderRadius: '4px',
                             fontSize: '12px'
                         }}>
-                            <p><strong>Demo Credentials:</strong></p>
-                            <p>Email: admin@yourdomain.com</p>
-                            <p>Password: ChangeMe123!</p>
+                            <p><strong>Default Admin Credentials:</strong></p>
+                            <p>Email: <strong>admin@yourdomain.com</strong></p>
+                            <p>Password: <strong>ChangeMe123!</strong></p>
                             <p style={{marginTop: '8px', fontSize: '11px', color: '#666'}}>
-                                ⚠️ Change your password immediately after first login
+                                Use the email above exactly as shown — it is not a placeholder.
+                                Change your password immediately after first login.
                             </p>
                         </div>
                     </Card>

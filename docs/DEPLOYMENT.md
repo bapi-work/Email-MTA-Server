@@ -49,11 +49,27 @@ Open your browser and navigate to:
 5. **Default Credentials**
 
 ```
-Email: admin@yourdomain.com
+Email:    admin@yourdomain.com   ← use this literally, it is not a placeholder
 Password: ChangeMe123!
 ```
 
-> Change the default password immediately after first login.
+> **Important:** The email `admin@yourdomain.com` is the exact login email stored in the database — it is not a variable you need to replace. Change the password (and optionally the email) immediately after first login via the admin portal Settings page.
+
+### Resetting the Admin Password (if locked out)
+
+If you cannot log in, reset the admin password directly in the database:
+
+```bash
+# Generate a new bcrypt hash for your chosen password
+docker exec cloudmta_backend python3 -c \
+  "import bcrypt; print(bcrypt.hashpw(b'YourNewPassword!', bcrypt.gensalt(12)).decode())"
+
+# Copy the printed hash, then update the database
+docker exec cloudmta_postgres psql -U cloudmta -d cloudmta_db -c \
+  "UPDATE users SET hashed_password = '\$2b\$12\$PASTE_YOUR_HASH_HERE' WHERE email = 'admin@yourdomain.com';"
+```
+
+You can then log in with `admin@yourdomain.com` and the new password.
 
 ## Production Deployment
 
@@ -130,6 +146,99 @@ For production, replace the self-signed certificates:
 # Copy your certificates to the config directory
 cp /path/to/your/cert.pem config/ssl/cert.pem
 cp /path/to/your/key.pem config/ssl/key.pem
+```
+
+#### Let's Encrypt (Certbot) — Automated Free Certificates
+
+```bash
+# Install certbot (Debian/Ubuntu)
+apt install certbot
+
+# Stop nginx temporarily to free port 80
+docker-compose stop nginx
+
+# Obtain certificate (replace mta.yourdomain.com with your FQDN)
+certbot certonly --standalone -d mta.yourdomain.com
+
+# Copy certificates into the config directory
+cp /etc/letsencrypt/live/mta.yourdomain.com/fullchain.pem config/ssl/cert.pem
+cp /etc/letsencrypt/live/mta.yourdomain.com/privkey.pem   config/ssl/key.pem
+
+# Restart nginx
+docker-compose start nginx
+```
+
+Add a cron job to auto-renew (runs daily, reloads nginx on success):
+
+```
+0 3 * * * certbot renew --quiet --pre-hook "docker-compose -f /path/to/cloudmta/docker-compose.yml stop nginx" --post-hook "cp /etc/letsencrypt/live/mta.yourdomain.com/fullchain.pem /path/to/cloudmta/config/ssl/cert.pem && cp /etc/letsencrypt/live/mta.yourdomain.com/privkey.pem /path/to/cloudmta/config/ssl/key.pem && docker-compose -f /path/to/cloudmta/docker-compose.yml start nginx"
+```
+
+### DNS Records Required for Mail Delivery
+
+Configure these DNS records at your domain registrar or DNS provider before sending mail:
+
+| Type | Host | Value | Purpose |
+|------|------|-------|---------|
+| A | `mta` | `<your server IP>` | Points hostname to server |
+| MX | `@` | `mta.yourdomain.com` (priority 10) | Receives inbound email |
+| TXT | `@` | `v=spf1 ip4:<your server IP> ~all` | SPF — authorises your IP to send mail |
+| TXT | `_dmarc` | `v=DMARC1; p=quarantine; rua=mailto:dmarc@yourdomain.com` | DMARC policy |
+| TXT | `<selector>._domainkey` | (DKIM key — generated in the admin portal) | DKIM signing |
+
+> SPF, DKIM, and DMARC records can be generated and verified from the **Domains** section of the admin portal.
+
+#### Reverse DNS (PTR Record) — Critical for Deliverability
+
+Most cloud providers and ISPs require a matching PTR (rDNS) record for your server's IP address. Without it, major mail providers (Gmail, Outlook, etc.) will reject or spam-folder your mail.
+
+Set the PTR record to match your `SMTP_HOSTNAME` in `.env`:
+
+- **AWS EC2**: Request via support ticket or use an Elastic IP with a PTR record set in the EC2 console.
+- **GCP**: Set under VPC Network → External IP Addresses → edit the IP → "Custom PTR record".
+- **Azure**: Set under the Public IP address resource → Configuration → Reverse FQDN.
+- **Hetzner / Linode / DigitalOcean**: Available directly in the cloud dashboard under the server's networking settings.
+- **Bare metal / colo**: Ask your ISP or hosting provider to set a PTR record for your IP.
+
+Example: if `SMTP_HOSTNAME=mta.yourdomain.com`, the PTR for your IP must resolve to `mta.yourdomain.com`.
+
+### Firewall & Port Configuration
+
+Open the following ports on your host firewall and any cloud security group:
+
+| Port | Protocol | Direction | Purpose |
+|------|----------|-----------|---------|
+| 80 | TCP | Inbound | HTTP (admin portal + Let's Encrypt) |
+| 443 | TCP | Inbound | HTTPS (admin portal) |
+| 25 | TCP | Inbound + Outbound | SMTP (receiving mail + sending to other MTAs) |
+| 587 | TCP | Inbound | SMTP Submission (authenticated clients) |
+| 465 | TCP | Inbound | SMTPS (submission over TLS) |
+
+> **Port 25 — Cloud Providers:** Most cloud providers block outbound port 25 by default to prevent spam. You must request it to be unblocked:
+> - **AWS**: Submit a request via the EC2 console → Limits → "Request to remove email sending limitations".
+> - **GCP**: Submit a quota increase request; or use SendGrid/Mailgun relay and set `SMTP_RELAY_HOST` in `.env`.
+> - **Azure**: Port 25 is permanently blocked on most VMs; use SMTP Auth on port 587 or an Azure Communication Services relay.
+> - **Hetzner / Linode / DigitalOcean**: Generally allow port 25; verify in the cloud console or contact support.
+
+**Linux firewall (ufw):**
+
+```bash
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 25/tcp
+ufw allow 587/tcp
+ufw allow 465/tcp
+ufw reload
+```
+
+**iptables:**
+
+```bash
+iptables -A INPUT -p tcp --dport 25  -j ACCEPT
+iptables -A INPUT -p tcp --dport 80  -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+iptables -A INPUT -p tcp --dport 587 -j ACCEPT
+iptables -A INPUT -p tcp --dport 465 -j ACCEPT
 ```
 
 ### Database Backup
