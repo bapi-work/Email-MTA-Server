@@ -3,10 +3,11 @@
 #
 # Prerequisites:
 #   1. Set SECRET_KEY to a secure random value (python -c "import secrets; print(secrets.token_hex(32))")
-#   2. Set DOMAIN to your public hostname
+#   2. Set SMTP_HOSTNAME in .env to your public mail hostname (e.g. mail.yourdomain.com)
+#      — this is the FQDN used in SMTP banners, SPF/DKIM/DMARC records, and DNS
 #   3. Place SSL certificate at config/ssl/cert.pem and config/ssl/key.pem
-#      (or use Let's Encrypt / certbot alongside nginx)
-#   4. Update CORS_ORIGINS in .env to your actual domain
+#      (or use Let's Encrypt / certbot alongside nginx — see docs/DEPLOYMENT.md)
+#   4. Update CORS_ORIGINS in .env to your actual domain (e.g. https://mta.yourdomain.com)
 
 services:
 
