@@ -138,12 +138,15 @@ services:
   nginx:
     image: nginx:latest
     container_name: cloudmta_nginx
+    env_file:
+      - .env
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./config/ssl:/etc/nginx/ssl:ro
+      - ./config/ssl-init.sh:/docker-entrypoint.d/10-ssl-init.sh:ro
+      - ./config/ssl:/etc/nginx/ssl          # writable so ssl-init can write certs
     depends_on:
       - backend
       - frontend
