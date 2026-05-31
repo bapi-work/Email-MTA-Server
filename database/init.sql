@@ -3,12 +3,12 @@
 -- Create default admin user
 -- Username: admin
 -- Email: admin@yourdomain.com
--- Password: ChangeMe123! (hashed with bcrypt)
+-- Password: CloudMTA2026!
 INSERT INTO users (username, email, hashed_password, role, full_name, is_active)
 VALUES (
     'admin',
     'admin@yourdomain.com',
-    '$2b$12$QYZ4ow5s3x9wk1SjnHUIAeCRA5ICbvG1T5uJaHFs/KVftzooCM4Ua',
+    '$2b$12$s.okKxp.jDrHO4liXfW2QOGWMelOwsoaHe752PUdNTh27EMaP.GzK',
     'admin',
     'System Administrator',
     TRUE
