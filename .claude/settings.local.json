@@ -6,7 +6,9 @@
       "PowerShell(Set-Location \"e:\\\\docker-local-test\\\\Claude\\\\Email MTA Server\"; Get-ChildItem -Force | Select-Object Name, @{Name=\"Type\"; Expression={if\\($_.PSIsContainer\\){\"Dir\"}else{\"File\"}}} | Format-Table -AutoSize)",
       "Bash(git check-ignore *)",
       "Bash(docker compose *)",
-      "Bash(findstr /i \"init\\\\|seed\\\\|startup\")"
+      "Bash(findstr /i \"init\\\\|seed\\\\|startup\")",
+      "Bash(docker-compose build *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST http://localhost/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"admin@yourdomain.com\\\\\",\\\\\"password\\\\\":\\\\\"ChangeMe123!\\\\\"}\")"
     ]
   }
 }

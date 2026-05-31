@@ -33,7 +33,12 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
             message.success('Login successful!');
             navigate('/');
         } catch (error) {
-            message.error(error.response?.data?.detail || 'Login failed');
+            const status = error.response?.status;
+            if (status === 429 || status === 503) {
+                message.error('Too many login attempts. Please wait a moment and try again.');
+            } else {
+                message.error(error.response?.data?.detail || 'Login failed. Check your email and password.');
+            }
         } finally {
             setLoading(false);
         }
