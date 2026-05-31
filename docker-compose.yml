@@ -14,10 +14,11 @@ services:
     ports:
       - "5432:5432"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} && psql -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} -c 'SELECT 1 FROM users LIMIT 1' -q --no-align --tuples-only 2>/dev/null | grep -q 1"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
     networks:
       - cloudmta_network
@@ -67,8 +68,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8000/ping"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 60s
+      retries: 15
+      start_period: 90s
 
   smtp-server:
     build:

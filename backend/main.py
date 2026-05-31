@@ -7,6 +7,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -31,12 +32,17 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info("CloudMTA Backend Starting...")
-    try:
-        # Create database tables
-        Base.metadata.create_all(bind=engine)
-        logger.info("Database tables initialized")
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+    for attempt in range(1, 11):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables initialized")
+            break
+        except Exception as e:
+            if attempt == 10:
+                logger.error(f"Database unavailable after 10 attempts, giving up: {e}")
+            else:
+                logger.warning(f"Database not ready (attempt {attempt}/10), retrying in 3s: {e}")
+                time.sleep(3)
     
     yield
     
