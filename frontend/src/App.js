@@ -275,12 +275,12 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                             label: 'Reputation',
                             onClick: () => navigate('/reputation')
                         },
-                        {
+                        ...(user?.role === 'admin' ? [{
                             key: 'settings',
                             icon: <SettingOutlined />,
                             label: 'Settings',
                             onClick: () => navigate('/settings')
-                        }
+                        }] : [])
                     ]}
                 />
 
@@ -339,7 +339,7 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                         <Route path="/analytics" element={<AnalyticsPage />} />
                         <Route path="/suppressions" element={<SuppressionsPage />} />
                         <Route path="/reputation" element={<ReputationPage />} />
-                        <Route path="/settings" element={<SettingsPage />} />
+                        <Route path="/settings" element={user?.role === 'admin' ? <SettingsPage /> : <Navigate to="/" replace />} />
                         <Route path="/profile" element={<ProfilePage user={user} />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

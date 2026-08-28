@@ -6,15 +6,18 @@ Main FastAPI Application
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import asyncio
 import logging
-import time
+import bcrypt
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+from sqlalchemy import text
+
 from config import settings
-from database import engine, Base, get_db
+from database import engine, Base, get_db, SessionLocal, User, UserRole
 from routers import users, domains, queues, smtp, analytics, auth, suppressions, reputation, send
-from middleware import JWTMiddleware
+from middleware import JWTMiddleware, RateLimitMiddleware
 from services import HealthcheckService
 
 # Configure logging
@@ -26,6 +29,52 @@ logger = logging.getLogger(__name__)
 
 # Initialize services
 healthcheck_service = HealthcheckService()
+
+def ensure_schema_migrations():
+    """Idempotent, additive column migrations for columns added after the
+    original schema.sql — create_all() only creates missing tables, not
+    missing columns on tables that already exist from an older deployment."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS smtp_password VARCHAR(255)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS smtp_password_created_at TIMESTAMP"
+            ))
+        logger.info("Schema migrations checked/applied")
+    except Exception as e:
+        logger.error(f"Schema migration failed: {e}")
+
+def ensure_default_admin():
+    """Seed the default admin account on a brand-new database only.
+
+    Runs on every startup, but is a no-op once any admin user exists —
+    it never touches an existing admin's password, so restarting or
+    redeploying the stack can never reset credentials someone changed.
+    """
+    db = SessionLocal()
+    try:
+        if db.query(User).filter(User.role == UserRole.ADMIN).first():
+            return
+
+        hashed = bcrypt.hashpw(settings.ADMIN_PASSWORD.encode(), bcrypt.gensalt()).decode()
+        admin = User(
+            username=settings.ADMIN_USERNAME,
+            email=settings.ADMIN_EMAIL,
+            hashed_password=hashed,
+            full_name="System Administrator",
+            role=UserRole.ADMIN,
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        logger.info(f"Seeded default admin account ({settings.ADMIN_EMAIL})")
+    except Exception as e:
+        logger.error(f"Failed to seed default admin account: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,8 +91,11 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Database unavailable after 10 attempts, giving up: {e}")
             else:
                 logger.warning(f"Database not ready (attempt {attempt}/10), retrying in 3s: {e}")
-                time.sleep(3)
-    
+                await asyncio.sleep(3)
+
+    ensure_schema_migrations()
+    ensure_default_admin()
+
     yield
     
     # Shutdown
@@ -66,7 +118,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Add custom JWT middleware
+# Order matters: Starlette runs the LAST-added middleware first. JWTMiddleware
+# must run before RateLimitMiddleware so request.state.user_id is available
+# for per-account limiting, so it's added last (outermost).
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(JWTMiddleware)
 
 # Liveness probe — always 200 if the process is running (used by Docker HEALTHCHECK)

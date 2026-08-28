@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Row, Col, Card, Form, Input, Button, message, Divider, Tabs, Tag } from 'antd';
+import { Row, Col, Card, Form, Input, Button, message, Divider, Tabs, Tag, Alert, Spin, Space, Tooltip } from 'antd';
 import {
     UserOutlined,
     MailOutlined,
     LockOutlined,
     SaveOutlined,
     SafetyCertificateOutlined,
-    CalendarOutlined
+    CalendarOutlined,
+    ReloadOutlined,
+    CopyOutlined,
+    StopOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -38,9 +41,68 @@ const ProfilePage = ({ user: propUser }) => {
     const [profileForm] = Form.useForm();
     const [passwordForm] = Form.useForm();
 
+    const [smtpStatus, setSmtpStatus] = useState(null);
+    const [smtpStatusLoading, setSmtpStatusLoading] = useState(true);
+    const [smtpGenerating, setSmtpGenerating] = useState(false);
+    const [smtpRevoking, setSmtpRevoking] = useState(false);
+    const [newSmtpCreds, setNewSmtpCreds] = useState(null);
+
     useEffect(() => {
         fetchUser();
     }, []);
+
+    useEffect(() => {
+        if (user?.id) fetchSmtpStatus(user.id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id]);
+
+    const fetchSmtpStatus = async (userId) => {
+        setSmtpStatusLoading(true);
+        try {
+            const res = await axios.get(`/api/v1/users/${userId}/smtp-credentials`);
+            setSmtpStatus(res.data);
+        } catch {
+            message.error('Failed to load SMTP credentials status');
+        } finally {
+            setSmtpStatusLoading(false);
+        }
+    };
+
+    const generateSmtpCredentials = async () => {
+        setSmtpGenerating(true);
+        setNewSmtpCreds(null);
+        try {
+            const res = await axios.post(`/api/v1/users/${user.id}/smtp-credentials`);
+            setNewSmtpCreds(res.data);
+            fetchSmtpStatus(user.id);
+            message.success('SMTP credentials generated');
+        } catch (err) {
+            message.error(err.response?.data?.detail || 'Failed to generate SMTP credentials');
+        } finally {
+            setSmtpGenerating(false);
+        }
+    };
+
+    const revokeSmtpCredentials = async () => {
+        setSmtpRevoking(true);
+        try {
+            await axios.delete(`/api/v1/users/${user.id}/smtp-credentials`);
+            setNewSmtpCreds(null);
+            fetchSmtpStatus(user.id);
+            message.success('SMTP credentials revoked');
+        } catch (err) {
+            message.error(err.response?.data?.detail || 'Failed to revoke SMTP credentials');
+        } finally {
+            setSmtpRevoking(false);
+        }
+    };
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text).then(
+            () => message.success('Copied to clipboard'),
+            () => message.error('Copy failed')
+        );
+    };
 
     const fetchUser = async () => {
         try {
@@ -327,6 +389,107 @@ const ProfilePage = ({ user: propUser }) => {
                                                     </Button>
                                                 </Form.Item>
                                             </Form>
+                                        </div>
+                                    )
+                                },
+                                {
+                                    key: 'smtp',
+                                    label: (
+                                        <span>
+                                            <MailOutlined />
+                                            &nbsp;SMTP Credentials
+                                        </span>
+                                    ),
+                                    children: (
+                                        <div style={{ padding: '24px' }}>
+                                            <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+                                                Use these credentials — not your dashboard password — to send email
+                                                through an app or mail client (e.g. Outlook, a website's contact form,
+                                                a script). Generating a new credential immediately invalidates the old one.
+                                            </p>
+
+                                            {smtpStatusLoading ? (
+                                                <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                                            ) : (
+                                                <>
+                                                    <div style={{
+                                                        background: '#f8fafc', border: '1px solid #e2e8f0',
+                                                        borderRadius: 8, padding: '14px 18px', marginBottom: 20,
+                                                        fontSize: 13
+                                                    }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                                                            <span style={{ color: '#64748b' }}>SMTP Host</span>
+                                                            <strong>{smtpStatus?.smtp_host}</strong>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                                                            <span style={{ color: '#64748b' }}>Ports</span>
+                                                            <strong>
+                                                                {smtpStatus?.ports?.submission_starttls} (STARTTLS) · {smtpStatus?.ports?.smtps} (SSL)
+                                                            </strong>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                                                            <span style={{ color: '#64748b' }}>Username</span>
+                                                            <strong>{smtpStatus?.smtp_username}</strong>
+                                                        </div>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                                                            <span style={{ color: '#64748b' }}>Status</span>
+                                                            <Tag color={smtpStatus?.configured ? 'success' : 'default'}>
+                                                                {smtpStatus?.configured ? 'Configured' : 'Not configured'}
+                                                            </Tag>
+                                                        </div>
+                                                    </div>
+
+                                                    {newSmtpCreds && (
+                                                        <Alert
+                                                            type="warning"
+                                                            showIcon
+                                                            message="Copy this password now — it will not be shown again."
+                                                            style={{ marginBottom: 12 }}
+                                                        />
+                                                    )}
+                                                    {newSmtpCreds && (
+                                                        <div style={{
+                                                            background: '#0f172a', borderRadius: 8, padding: '12px 16px',
+                                                            fontFamily: 'monospace', fontSize: 13, color: '#a5f3fc',
+                                                            wordBreak: 'break-all', position: 'relative', paddingRight: 44,
+                                                            marginBottom: 20
+                                                        }}>
+                                                            {newSmtpCreds.smtp_password}
+                                                            <Tooltip title="Copy">
+                                                                <Button
+                                                                    size="small" type="text" icon={<CopyOutlined />}
+                                                                    onClick={() => copyToClipboard(newSmtpCreds.smtp_password)}
+                                                                    style={{
+                                                                        position: 'absolute', top: 8, right: 8,
+                                                                        color: '#7dd3fc', background: 'rgba(255,255,255,0.08)'
+                                                                    }}
+                                                                />
+                                                            </Tooltip>
+                                                        </div>
+                                                    )}
+
+                                                    <Space>
+                                                        <Button
+                                                            type="primary"
+                                                            icon={<ReloadOutlined />}
+                                                            loading={smtpGenerating}
+                                                            onClick={generateSmtpCredentials}
+                                                        >
+                                                            {smtpStatus?.configured ? 'Rotate Credential' : 'Generate Credential'}
+                                                        </Button>
+                                                        {smtpStatus?.configured && (
+                                                            <Button
+                                                                danger
+                                                                icon={<StopOutlined />}
+                                                                loading={smtpRevoking}
+                                                                onClick={revokeSmtpCredentials}
+                                                            >
+                                                                Revoke
+                                                            </Button>
+                                                        )}
+                                                    </Space>
+                                                </>
+                                            )}
                                         </div>
                                     )
                                 }

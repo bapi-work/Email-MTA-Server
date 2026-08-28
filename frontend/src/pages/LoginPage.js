@@ -136,7 +136,7 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                         }}>
                             <p><strong>Default Admin Credentials:</strong></p>
                             <p>Email: <strong>admin@yourdomain.com</strong></p>
-                            <p>Password: <strong>ChangeMe123!</strong></p>
+                            <p>Password: <strong>CloudMTA2026!</strong></p>
                             <p style={{marginTop: '8px', fontSize: '11px', color: '#666'}}>
                                 Use the email above exactly as shown — it is not a placeholder.
                                 Change your password immediately after first login.

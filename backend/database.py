@@ -65,6 +65,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     api_key = Column(String(255), unique=True, nullable=True)
     api_key_created_at = Column(DateTime, nullable=True)
+    smtp_password = Column(String(255), nullable=True)  # bcrypt hash — separate from hashed_password
+    smtp_password_created_at = Column(DateTime, nullable=True)
     ipv4_addresses = Column(JSON, default=[])
     ipv6_addresses = Column(JSON, default=[])
     rate_limit_per_second = Column(Integer, default=100)

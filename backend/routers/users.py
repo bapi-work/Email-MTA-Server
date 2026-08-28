@@ -6,8 +6,12 @@ from sqlalchemy import func
 import secrets
 import bcrypt
 from database import get_db, User, UserRole, Domain, DomainStatus
-from schemas import UserResponse, APIKeyResponse, APIKeyCreate, RegisterRequest, DomainResponse, AddDomainToUserRequest
+from schemas import (
+    UserResponse, APIKeyResponse, APIKeyCreate, RegisterRequest, DomainResponse,
+    AddDomainToUserRequest, SMTPCredentialsResponse, SMTPCredentialsStatus
+)
 from services import DKIMService
+from config import settings
 from config import settings
 
 router = APIRouter()
@@ -297,6 +301,111 @@ async def revoke_api_key(
     user.api_key = None
     user.api_key_created_at = None
     
+    db.commit()
+
+def _smtp_ports() -> dict:
+    return {
+        "smtp": settings.SMTP_PORT,
+        "submission_starttls": settings.SMTP_TLS_PORT,
+        "smtps": settings.SMTP_SSL_PORT,
+    }
+
+@router.post("/{user_id}/smtp-credentials", response_model=SMTPCredentialsResponse)
+async def generate_smtp_credentials(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Generate (or rotate) this user's SMTP send credentials.
+
+    Distinct from the dashboard login password — these are what gets typed
+    into an email client / app's SMTP config to authenticate and relay mail
+    through the server. Self-service: a user may generate their own, and an
+    admin may generate one for any user."""
+
+    if current_user.id != user_id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only manage your own SMTP credentials"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    smtp_password = secrets.token_urlsafe(24)
+    user.smtp_password = _hash_password(smtp_password)
+    user.smtp_password_created_at = func.now()
+
+    db.commit()
+    db.refresh(user)
+
+    return SMTPCredentialsResponse(
+        smtp_username=user.username,
+        smtp_password=smtp_password,
+        smtp_host=settings.SMTP_HOSTNAME,
+        ports=_smtp_ports(),
+        created_at=user.smtp_password_created_at
+    )
+
+@router.get("/{user_id}/smtp-credentials", response_model=SMTPCredentialsStatus)
+async def get_smtp_credentials_status(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Check whether SMTP credentials exist for a user (never returns the password)."""
+
+    if current_user.id != user_id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view your own SMTP credentials"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    return SMTPCredentialsStatus(
+        configured=bool(user.smtp_password),
+        smtp_username=user.username,
+        smtp_host=settings.SMTP_HOSTNAME,
+        ports=_smtp_ports(),
+        created_at=user.smtp_password_created_at
+    )
+
+@router.delete("/{user_id}/smtp-credentials", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_smtp_credentials(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Revoke a user's SMTP send credentials."""
+
+    if current_user.id != user_id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only revoke your own SMTP credentials"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    user.smtp_password = None
+    user.smtp_password_created_at = None
     db.commit()
 
 @router.get("/{user_id}/domains", response_model=list[DomainResponse])

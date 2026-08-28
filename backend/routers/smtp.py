@@ -33,6 +33,18 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     return user
 
 
+def is_admin(current_user: User = Depends(get_current_user)):
+    """Server-wide configuration (IP pool, routing rules, webhooks, warmup,
+    ISP profiles, configuration sets, etc.) is admin-only — it affects every
+    tenant on the server, not just the caller's own account/domains."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return current_user
+
+
 # ─────────────────────────────────────────────
 #  Helper: detect public IP
 # ─────────────────────────────────────────────
@@ -129,7 +141,7 @@ async def get_server_info(current_user: User = Depends(get_current_user)):
 #  SMTP Config GET / PUT
 # ─────────────────────────────────────────────
 @router.get("/config")
-async def get_smtp_settings(current_user: User = Depends(get_current_user)):
+async def get_smtp_settings(current_user: User = Depends(is_admin)):
     """Get full SMTP server configuration."""
     return {
         "hostname": settings.SMTP_HOSTNAME,
@@ -186,7 +198,7 @@ async def update_smtp_settings(
 #  Authentication Settings GET / PUT
 # ─────────────────────────────────────────────
 @router.get("/authentication")
-async def get_authentication_settings(current_user: User = Depends(get_current_user)):
+async def get_authentication_settings(current_user: User = Depends(is_admin)):
     """Get email authentication settings (SPF / DKIM / DMARC)."""
     return {
         "spf_enabled": settings.SPF_CHECK_ENABLED,
@@ -226,7 +238,7 @@ async def update_authentication_settings(
 # ─────────────────────────────────────────────
 @router.get("/ip-pool")
 async def get_global_ip_pool(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Get the global IP pool for the current user."""
@@ -255,7 +267,7 @@ async def get_global_ip_pool(
 @router.post("/ip-pool/add")
 async def add_to_global_ip_pool(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Add an IP address to the user's global pool."""
@@ -290,7 +302,7 @@ async def add_to_global_ip_pool(
 @router.delete("/ip-pool/{ip_address:path}")
 async def remove_from_global_ip_pool(
     ip_address: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Remove an IP address from the user's global pool."""
@@ -552,7 +564,7 @@ async def get_delivery_config(current_user: User = Depends(get_current_user)):
 # ─────────────────────────────────────────────
 @router.get("/routing-rules")
 async def list_routing_rules(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """List all routing rules for the current user."""
@@ -585,7 +597,7 @@ async def list_routing_rules(
 @router.post("/routing-rules")
 async def create_routing_rule(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Create a new routing rule."""
@@ -627,7 +639,7 @@ async def create_routing_rule(
 async def update_routing_rule(
     rule_id: int,
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Update an existing routing rule."""
@@ -654,7 +666,7 @@ async def update_routing_rule(
 @router.delete("/routing-rules/{rule_id}")
 async def delete_routing_rule(
     rule_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Delete a routing rule."""
@@ -676,7 +688,7 @@ VALID_WEBHOOK_EVENTS = {"bounce", "complaint", "delivery", "open", "click", "uns
 
 @router.get("/webhooks")
 async def list_webhooks(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """List all webhook endpoints."""
@@ -702,7 +714,7 @@ async def list_webhooks(
 @router.post("/webhooks")
 async def create_webhook(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Create a new webhook endpoint."""
@@ -739,7 +751,7 @@ async def create_webhook(
 async def update_webhook(
     webhook_id: int,
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Update a webhook endpoint."""
@@ -770,7 +782,7 @@ async def update_webhook(
 @router.delete("/webhooks/{webhook_id}")
 async def delete_webhook(
     webhook_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Delete a webhook endpoint."""
@@ -787,7 +799,7 @@ async def delete_webhook(
 @router.post("/webhooks/{webhook_id}/test")
 async def test_webhook(
     webhook_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Send a test ping to a webhook endpoint."""
@@ -822,7 +834,7 @@ async def test_webhook(
 #  Tracking Settings  (open / click pixel)
 # ─────────────────────────────────────────────
 @router.get("/tracking")
-async def get_tracking_config(current_user: User = Depends(get_current_user)):
+async def get_tracking_config(current_user: User = Depends(is_admin)):
     """Get open/click tracking configuration."""
     return {
         "open_tracking_enabled": getattr(settings, "OPEN_TRACKING_ENABLED", False),
@@ -925,7 +937,7 @@ ISP_THROTTLE_PROFILES = {
 
 @router.get("/warmup")
 async def list_warmup_schedules(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """List all IP warmup schedules for the current user."""
@@ -964,7 +976,7 @@ async def list_warmup_schedules(
 @router.post("/warmup")
 async def create_warmup_schedule(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Create an IP warmup schedule."""
@@ -1006,7 +1018,7 @@ async def create_warmup_schedule(
 async def update_warmup_schedule(
     schedule_id: int,
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Update a warmup schedule."""
@@ -1033,7 +1045,7 @@ async def update_warmup_schedule(
 @router.delete("/warmup/{schedule_id}")
 async def delete_warmup_schedule(
     schedule_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Delete a warmup schedule."""
@@ -1053,7 +1065,7 @@ async def delete_warmup_schedule(
 # ─────────────────────────────────────────────
 
 @router.get("/isp-profiles")
-async def list_isp_profiles(current_user: User = Depends(get_current_user)):
+async def list_isp_profiles(current_user: User = Depends(is_admin)):
     """
     Return pre-built ISP throttle profiles (PowerMTA traffic shaping equivalent).
     """
@@ -1068,7 +1080,7 @@ async def list_isp_profiles(current_user: User = Depends(get_current_user)):
 @router.post("/isp-profiles/apply")
 async def apply_isp_profile(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -1206,7 +1218,7 @@ async def run_simulator_test(
 
 @router.get("/configuration-sets")
 async def list_configuration_sets(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """List all configuration sets."""
@@ -1236,7 +1248,7 @@ async def list_configuration_sets(
 @router.post("/configuration-sets")
 async def create_configuration_set(
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Create a configuration set."""
@@ -1274,7 +1286,7 @@ async def create_configuration_set(
 async def update_configuration_set(
     set_id: int,
     body: dict = Body(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Update a configuration set."""
@@ -1298,7 +1310,7 @@ async def update_configuration_set(
 @router.delete("/configuration-sets/{set_id}")
 async def delete_configuration_set(
     set_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(is_admin),
     db: Session = Depends(get_db),
 ):
     """Delete a configuration set."""

@@ -85,3 +85,7 @@ tmp/
 temp/
 .cache/
 .maintenance
+
+# Stray artifacts from a Windows path (C:\temp\login.json) misinterpreted by a
+# POSIX shell — contains a leaked JWT if ever recreated, never commit these.
+*templogin.json

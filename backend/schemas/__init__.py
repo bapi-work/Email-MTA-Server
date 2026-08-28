@@ -182,6 +182,21 @@ class APIKeyResponse(BaseModel):
     created_at: datetime
     description: Optional[str]
 
+# SMTP Credentials Schemas
+class SMTPCredentialsResponse(BaseModel):
+    smtp_username: str
+    smtp_password: str
+    smtp_host: str
+    ports: Dict[str, int]
+    created_at: datetime
+
+class SMTPCredentialsStatus(BaseModel):
+    configured: bool
+    smtp_username: str
+    smtp_host: str
+    ports: Dict[str, int]
+    created_at: Optional[datetime] = None
+
 # Error Response
 class ErrorResponse(BaseModel):
     error: str

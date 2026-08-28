@@ -36,9 +36,17 @@ services:
 
   # ─── Frontend: production build only, no dev server ────────────────
   frontend:
+    build:
+      args:
+        # Relative path — nginx proxies /api/* to the backend in production.
+        # The base compose file bakes in http://localhost:8000 for the dev
+        # convenience of hitting port 3000 directly without nginx; that value
+        # would be wrong here since real visitors' browsers can't resolve
+        # "localhost". Override to your public API origin instead if the API
+        # is ever served from a different host than the frontend.
+        REACT_APP_API_URL: ""
     environment:
       REACT_APP_ENV: production
-      # Set REACT_APP_API_URL to your public API URL if different from '/'
     ports: !reset []    # served exclusively through nginx
     restart: unless-stopped
     deploy:

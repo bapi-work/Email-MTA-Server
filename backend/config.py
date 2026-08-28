@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # IP Warmup (SES / GreenArrow)
     IP_WARMUP_ENABLED: bool = True
 
+    # Default admin account — only used to seed the very first admin user
+    # when no admin exists yet (e.g. a brand-new database). Never used to
+    # overwrite an existing admin's password.
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@yourdomain.com")
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "CloudMTA2026!")
+
     # Features
     BULK_EMAIL_ENABLED: bool = True
     DOMAIN_MANAGEMENT_ENABLED: bool = True

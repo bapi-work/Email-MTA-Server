@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_active BOOLEAN DEFAULT TRUE,
     api_key VARCHAR(255) UNIQUE,
     api_key_created_at TIMESTAMP,
+    smtp_password VARCHAR(255),
+    smtp_password_created_at TIMESTAMP,
     ipv4_addresses JSONB DEFAULT '[]'::jsonb,
     ipv6_addresses JSONB DEFAULT '[]'::jsonb,
     rate_limit_per_second INTEGER DEFAULT 100,
