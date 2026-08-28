@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Table, Button, Modal, Form, Input, message, Card, Spin, Space,
+    Table, Button, Modal, Form, Input, Select, message, Card, Spin, Space,
     Tag, Tooltip, Tabs, Divider, Alert, Badge
 } from 'antd';
 import {
     PlusOutlined, DeleteOutlined, SafetyCertificateOutlined,
     CopyOutlined, CheckCircleOutlined, CloseCircleOutlined,
     GlobalOutlined, LoadingOutlined, InfoCircleOutlined,
-    SyncOutlined, ExclamationCircleOutlined
+    SyncOutlined, ExclamationCircleOutlined, SwapOutlined, UserOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -104,19 +104,28 @@ const DnsSection = ({ title, desc, name, value, verified, optional }) => (
     </div>
 );
 
-const DomainsPage = () => {
+const DomainsPage = ({ user }) => {
+    const isAdmin = user?.role === 'admin';
     const [loading, setLoading] = useState(true);
     const [domains, setDomains] = useState([]);
+    const [users, setUsers] = useState([]);
     const [addModalVisible, setAddModalVisible] = useState(false);
     const [verifyModalVisible, setVerifyModalVisible] = useState(false);
+    const [assignModal, setAssignModal] = useState({ open: false, domain: null });
+    const [assignSaving, setAssignSaving] = useState(false);
     const [selectedDomain, setSelectedDomain] = useState(null);
     const [verifyLoading, setVerifyLoading] = useState(false);
     const [verifyResult, setVerifyResult] = useState(null);
     const [generatedSpf, setGeneratedSpf] = useState(null);
     const [spfGenerating, setSpfGenerating] = useState(false);
     const [form] = Form.useForm();
+    const [assignForm] = Form.useForm();
 
-    useEffect(() => { fetchDomains(); }, []);
+    useEffect(() => {
+        fetchDomains();
+        if (isAdmin) fetchUsers();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const fetchDomains = async () => {
         try {
@@ -129,6 +138,15 @@ const DomainsPage = () => {
         }
     };
 
+    const fetchUsers = async () => {
+        try {
+            const res = await axios.get('/api/v1/users/', { params: { limit: 100 } });
+            setUsers(res.data || []);
+        } catch {
+            // non-fatal: owner selection just won't be available
+        }
+    };
+
     const handleAddDomain = async (values) => {
         try {
             await axios.post('/api/v1/domains/', values);
@@ -138,6 +156,25 @@ const DomainsPage = () => {
             fetchDomains();
         } catch (err) {
             message.error(err.response?.data?.detail || 'Failed to add domain');
+        }
+    };
+
+    const openAssignModal = (domain) => {
+        setAssignModal({ open: true, domain });
+        assignForm.setFieldsValue({ owner_id: domain.owner_id });
+    };
+
+    const handleAssignOwner = async (values) => {
+        setAssignSaving(true);
+        try {
+            await axios.post(`/api/v1/domains/${assignModal.domain.id}/assign`, values);
+            message.success('Domain owner updated');
+            setAssignModal({ open: false, domain: null });
+            fetchDomains();
+        } catch (err) {
+            message.error(err.response?.data?.detail || 'Failed to assign domain owner');
+        } finally {
+            setAssignSaving(false);
         }
     };
 
@@ -227,6 +264,16 @@ const DomainsPage = () => {
             key: 'status',
             render: (_, record) => getStatusTag(record)
         },
+        ...(isAdmin ? [{
+            title: 'Owner',
+            dataIndex: 'owner_username',
+            key: 'owner_username',
+            render: (v, record) => (
+                <Tooltip title={record.owner_email}>
+                    <span><UserOutlined style={{ marginRight: 4, color: '#64748b' }} />{v || `User #${record.owner_id}`}</span>
+                </Tooltip>
+            )
+        }] : []),
         {
             title: 'SPF',
             dataIndex: 'spf_verified',
@@ -252,6 +299,15 @@ const DomainsPage = () => {
                     >
                         DNS Setup
                     </Button>
+                    {isAdmin && (
+                        <Button
+                            size="small"
+                            icon={<SwapOutlined />}
+                            onClick={() => openAssignModal(record)}
+                        >
+                            Assign Owner
+                        </Button>
+                    )}
                     <Button
                         danger
                         size="small"
@@ -421,8 +477,49 @@ const DomainsPage = () => {
                             size="large"
                         />
                     </Form.Item>
+                    {isAdmin && (
+                        <Form.Item
+                            label="Owner"
+                            name="owner_id"
+                            tooltip="Defaults to your own account if left blank"
+                        >
+                            <Select
+                                allowClear
+                                placeholder="Assign to a user (defaults to you)"
+                                options={users.map(u => ({ value: u.id, label: `${u.username} (${u.email})` }))}
+                            />
+                        </Form.Item>
+                    )}
                     <Form.Item style={{ marginBottom: 0 }}>
                         <Button type="primary" block htmlType="submit" size="large">Add Domain</Button>
+                    </Form.Item>
+                </Form>
+            </Modal>
+
+            {/* Assign Owner Modal */}
+            <Modal
+                title={<span><SwapOutlined /> Assign Domain Owner — <span style={{ color: '#4f46e5' }}>{assignModal.domain?.domain_name}</span></span>}
+                open={assignModal.open}
+                onCancel={() => setAssignModal({ open: false, domain: null })}
+                footer={null}
+                width={440}
+            >
+                <Form form={assignForm} layout="vertical" onFinish={handleAssignOwner} style={{ marginTop: 16 }}>
+                    <Form.Item
+                        label="Owner"
+                        name="owner_id"
+                        rules={[{ required: true, message: 'Please select an owner' }]}
+                    >
+                        <Select
+                            placeholder="Select a user"
+                            options={users.map(u => ({ value: u.id, label: `${u.username} (${u.email})` }))}
+                        />
+                    </Form.Item>
+                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                        <Space>
+                            <Button onClick={() => setAssignModal({ open: false, domain: null })}>Cancel</Button>
+                            <Button type="primary" htmlType="submit" loading={assignSaving}>Save</Button>
+                        </Space>
                     </Form.Item>
                 </Form>
             </Modal>

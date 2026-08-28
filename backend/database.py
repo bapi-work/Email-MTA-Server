@@ -126,6 +126,14 @@ class Domain(Base):
     
     owner = relationship("User", back_populates="domains")
     messages = relationship("Message", back_populates="domain")
+
+    @property
+    def owner_username(self):
+        return self.owner.username if self.owner else None
+
+    @property
+    def owner_email(self):
+        return self.owner.email if self.owner else None
     
     def __repr__(self):
         return f"<Domain {self.domain_name}>"

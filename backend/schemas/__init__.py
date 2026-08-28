@@ -36,7 +36,8 @@ class UserResponse(BaseModel):
 # Domain Schemas
 class DomainCreate(BaseModel):
     domain_name: str = Field(..., min_length=3)
-    
+    owner_id: Optional[int] = None
+
 class DomainUpdate(BaseModel):
     status: Optional[str] = None
     spf_record: Optional[str] = None
@@ -60,9 +61,19 @@ class DomainResponse(BaseModel):
     spf_record: Optional[str] = None
     dkim_selector: Optional[str] = None
     dkim_public_key: Optional[str] = None
+    owner_id: int
+    owner_username: Optional[str] = None
+    owner_email: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class DomainOwnerAssign(BaseModel):
+    owner_id: int
+
+class AddDomainToUserRequest(BaseModel):
+    domain_name: Optional[str] = Field(None, min_length=3)
+    domain_id: Optional[int] = None
 
 class DomainDetailResponse(DomainResponse):
     spf_record: Optional[str]

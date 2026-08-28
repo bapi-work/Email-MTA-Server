@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import secrets
 import bcrypt
-from database import get_db, User, UserRole
-from schemas import UserResponse, APIKeyResponse, APIKeyCreate, RegisterRequest
+from database import get_db, User, UserRole, Domain, DomainStatus
+from schemas import UserResponse, APIKeyResponse, APIKeyCreate, RegisterRequest, DomainResponse, AddDomainToUserRequest
+from services import DKIMService
 from config import settings
 
 router = APIRouter()
@@ -298,7 +299,7 @@ async def revoke_api_key(
     
     db.commit()
 
-@router.get("/{user_id}/domains")
+@router.get("/{user_id}/domains", response_model=list[DomainResponse])
 async def get_user_domains(
     user_id: int,
     current_user: User = Depends(get_current_user),
@@ -321,3 +322,60 @@ async def get_user_domains(
         )
     
     return user.domains
+
+@router.post("/{user_id}/domains", response_model=DomainResponse, status_code=status.HTTP_201_CREATED)
+async def add_domain_to_user(
+    user_id: int,
+    request: AddDomainToUserRequest,
+    current_user: User = Depends(is_admin),
+    db: Session = Depends(get_db)
+):
+    """Attach a domain to a user (admin only) — either creates a new domain
+    owned by the user, or reassigns an existing domain (by domain_id) to them."""
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    if request.domain_id is not None:
+        domain = db.query(Domain).filter(Domain.id == request.domain_id).first()
+        if not domain:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Domain not found"
+            )
+        domain.owner_id = user.id
+        db.commit()
+        db.refresh(domain)
+        return domain
+
+    if request.domain_name:
+        existing = db.query(Domain).filter(Domain.domain_name == request.domain_name).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Domain already registered"
+            )
+
+        domain = Domain(
+            domain_name=request.domain_name,
+            owner_id=user.id,
+            status=DomainStatus.VERIFICATION_PENDING
+        )
+        private_key, public_key = DKIMService.generate_dkim_keys()
+        domain.dkim_private_key = private_key
+        domain.dkim_public_key = public_key
+
+        db.add(domain)
+        db.commit()
+        db.refresh(domain)
+        return domain
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Either domain_id or domain_name must be provided"
+    )

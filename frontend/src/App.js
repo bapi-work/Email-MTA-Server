@@ -245,12 +245,12 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                             label: 'Domains',
                             onClick: () => navigate('/domains')
                         },
-                        {
+                        ...(user?.role === 'admin' ? [{
                             key: 'users',
                             icon: <UserOutlined />,
                             label: 'Users',
                             onClick: () => navigate('/users')
-                        },
+                        }] : []),
                         {
                             key: 'queues',
                             icon: <MailOutlined />,
@@ -333,8 +333,8 @@ function AuthenticatedApp({ user, onLogout, collapsed, setCollapsed }) {
                 <Content className="mta-content">
                     <Routes>
                         <Route path="/" element={<DashboardPage />} />
-                        <Route path="/domains" element={<DomainsPage />} />
-                        <Route path="/users" element={<UsersPage />} />
+                        <Route path="/domains" element={<DomainsPage user={user} />} />
+                        <Route path="/users" element={user?.role === 'admin' ? <UsersPage user={user} /> : <Navigate to="/" replace />} />
                         <Route path="/queues" element={<QueuesPage />} />
                         <Route path="/analytics" element={<AnalyticsPage />} />
                         <Route path="/suppressions" element={<SuppressionsPage />} />

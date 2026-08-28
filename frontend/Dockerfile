@@ -11,6 +11,10 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# CRA reads REACT_APP_* env vars at build time, not container runtime
+ARG REACT_APP_API_URL=""
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
+
 # Build application
 RUN npm run build
 

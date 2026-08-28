@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
     Table, Button, Modal, Form, Input, Select, Switch, message,
-    Card, Spin, Space, Tag, Tooltip, Badge, Popconfirm, Alert
+    Card, Spin, Space, Tag, Tooltip, Badge, Popconfirm, Alert, List, Radio, Divider
 } from 'antd';
 import {
     PlusOutlined, DeleteOutlined, EditOutlined, UserOutlined,
     MailOutlined, LockOutlined, SafetyCertificateOutlined,
     CheckCircleOutlined, StopOutlined, ExclamationCircleOutlined,
-    KeyOutlined, CopyOutlined, ReloadOutlined
+    KeyOutlined, CopyOutlined, ReloadOutlined, GlobalOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
@@ -27,9 +27,14 @@ const UsersPage = () => {
     const [addModal, setAddModal] = useState(false);
     const [editModal, setEditModal] = useState({ open: false, user: null });
     const [apiKeyModal, setApiKeyModal] = useState({ open: false, user: null, key: null, generating: false });
+    const [domainsModal, setDomainsModal] = useState({ open: false, user: null, domains: [], loading: false });
+    const [unassignedDomains, setUnassignedDomains] = useState([]);
+    const [addDomainMode, setAddDomainMode] = useState('new');
+    const [domainSaving, setDomainSaving] = useState(false);
     const [saving, setSaving] = useState(false);
     const [addForm] = Form.useForm();
     const [editForm] = Form.useForm();
+    const [domainForm] = Form.useForm();
 
     useEffect(() => { fetchUsers(); }, []);
 
@@ -105,6 +110,40 @@ const UsersPage = () => {
         }
     };
 
+    const openDomainsModal = async (user) => {
+        setDomainsModal({ open: true, user, domains: [], loading: true });
+        setAddDomainMode('new');
+        domainForm.resetFields();
+        try {
+            const [domainsRes, allDomainsRes] = await Promise.all([
+                axios.get(`/api/v1/users/${user.id}/domains`),
+                axios.get('/api/v1/domains/', { params: { limit: 100 } })
+            ]);
+            setDomainsModal({ open: true, user, domains: domainsRes.data || [], loading: false });
+            setUnassignedDomains((allDomainsRes.data || []).filter(d => d.owner_id !== user.id));
+        } catch (err) {
+            message.error(err.response?.data?.detail || 'Failed to load domains');
+            setDomainsModal({ open: true, user, domains: [], loading: false });
+        }
+    };
+
+    const handleAddDomainToUser = async (values) => {
+        setDomainSaving(true);
+        try {
+            const payload = addDomainMode === 'new'
+                ? { domain_name: values.domain_name }
+                : { domain_id: values.domain_id };
+            await axios.post(`/api/v1/users/${domainsModal.user.id}/domains`, payload);
+            message.success('Domain added to user');
+            domainForm.resetFields();
+            openDomainsModal(domainsModal.user);
+        } catch (err) {
+            message.error(err.response?.data?.detail || 'Failed to add domain');
+        } finally {
+            setDomainSaving(false);
+        }
+    };
+
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text).then(
             () => message.success('Copied to clipboard'),
@@ -161,6 +200,9 @@ const UsersPage = () => {
                     </Tooltip>
                     <Tooltip title="Generate API key">
                         <Button size="small" icon={<KeyOutlined />} onClick={() => generateApiKey(record)} />
+                    </Tooltip>
+                    <Tooltip title="Manage domains">
+                        <Button size="small" icon={<GlobalOutlined />} onClick={() => openDomainsModal(record)} />
                     </Tooltip>
                     <Popconfirm
                         title={`Delete "${record.username}"?`}
@@ -353,6 +395,80 @@ const UsersPage = () => {
                         Click "Generate New Key" to create or rotate the API key for this user.
                         The previous key will be immediately invalidated.
                     </p>
+                )}
+            </Modal>
+
+            {/* Domains Modal */}
+            <Modal
+                title={<span><GlobalOutlined /> Domains — <span style={{ color: '#4f46e5' }}>{domainsModal.user?.username}</span></span>}
+                open={domainsModal.open}
+                onCancel={() => setDomainsModal({ open: false, user: null, domains: [], loading: false })}
+                footer={[
+                    <Button key="close" onClick={() => setDomainsModal({ open: false, user: null, domains: [], loading: false })}>
+                        Close
+                    </Button>
+                ]}
+                width={560}
+            >
+                {domainsModal.loading ? (
+                    <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                ) : (
+                    <>
+                        <List
+                            size="small"
+                            dataSource={domainsModal.domains}
+                            locale={{ emptyText: 'No domains assigned to this user yet.' }}
+                            style={{ marginBottom: 20 }}
+                            renderItem={(d) => (
+                                <List.Item>
+                                    <Space>
+                                        <GlobalOutlined style={{ color: '#4f46e5' }} />
+                                        <span style={{ fontWeight: 600 }}>{d.domain_name}</span>
+                                        <Tag color={d.status === 'active' ? 'success' : 'warning'}>{d.status}</Tag>
+                                    </Space>
+                                </List.Item>
+                            )}
+                        />
+                        <Divider style={{ margin: '12px 0' }} />
+                        <Form form={domainForm} layout="vertical" onFinish={handleAddDomainToUser}>
+                            <Form.Item label="Add domain to this user">
+                                <Radio.Group
+                                    value={addDomainMode}
+                                    onChange={(e) => { setAddDomainMode(e.target.value); domainForm.resetFields(); }}
+                                    style={{ marginBottom: 12 }}
+                                >
+                                    <Radio.Button value="new">Register new domain</Radio.Button>
+                                    <Radio.Button value="existing">Reassign existing domain</Radio.Button>
+                                </Radio.Group>
+                                {addDomainMode === 'new' ? (
+                                    <Form.Item
+                                        name="domain_name"
+                                        rules={[{ required: true, message: 'Please enter a domain name' }]}
+                                        noStyle
+                                    >
+                                        <Input prefix={<GlobalOutlined />} placeholder="example.com" />
+                                    </Form.Item>
+                                ) : (
+                                    <Form.Item
+                                        name="domain_id"
+                                        rules={[{ required: true, message: 'Please select a domain' }]}
+                                        noStyle
+                                    >
+                                        <Select
+                                            placeholder="Select an existing domain"
+                                            options={unassignedDomains.map(d => ({ value: d.id, label: d.domain_name }))}
+                                            notFoundContent="No unassigned domains available"
+                                        />
+                                    </Form.Item>
+                                )}
+                            </Form.Item>
+                            <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+                                <Button type="primary" htmlType="submit" loading={domainSaving} icon={<PlusOutlined />}>
+                                    Add Domain
+                                </Button>
+                            </Form.Item>
+                        </Form>
+                    </>
                 )}
             </Modal>
         </div>

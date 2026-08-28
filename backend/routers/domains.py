@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import dns.resolver
 from database import get_db, Domain, User, UserRole, DomainStatus
-from schemas import DomainCreate, DomainUpdate, DomainResponse, DomainDetailResponse
+from schemas import DomainCreate, DomainUpdate, DomainResponse, DomainDetailResponse, DomainOwnerAssign
 from services import SPFService, DKIMService, DMARCService
 from config import settings
 
@@ -38,22 +38,38 @@ async def create_domain(
     db: Session = Depends(get_db)
 ):
     """Create a new domain"""
-    
+
     # Check if domain already exists
     existing = db.query(Domain).filter(
         Domain.domain_name == request.domain_name
     ).first()
-    
+
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Domain already registered"
         )
-    
+
+    # Admins may create a domain directly under another user via owner_id
+    owner_id = current_user.id
+    if request.owner_id is not None:
+        if current_user.role != UserRole.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admin can assign a domain to another user"
+            )
+        target_owner = db.query(User).filter(User.id == request.owner_id).first()
+        if not target_owner:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Target user not found"
+            )
+        owner_id = target_owner.id
+
     # Create domain
     domain = Domain(
         domain_name=request.domain_name,
-        owner_id=current_user.id,
+        owner_id=owner_id,
         status=DomainStatus.VERIFICATION_PENDING
     )
     
@@ -75,12 +91,14 @@ async def list_domains(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List user's domains"""
-    
-    domains = db.query(Domain).filter(
-        Domain.owner_id == current_user.id
-    ).offset(skip).limit(limit).all()
-    
+    """List domains — admins see all domains, other users see only their own"""
+
+    query = db.query(Domain)
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Domain.owner_id == current_user.id)
+
+    domains = query.offset(skip).limit(limit).all()
+
     return domains
 
 @router.get("/{domain_id}", response_model=DomainDetailResponse)
@@ -140,6 +158,43 @@ async def update_domain(
     db.commit()
     db.refresh(domain)
     
+    return domain
+
+@router.post("/{domain_id}/assign", response_model=DomainResponse)
+async def assign_domain_owner(
+    domain_id: int,
+    request: DomainOwnerAssign,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Assign (reassign) a domain to a different user (admin only)"""
+
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin can assign domains to users"
+        )
+
+    domain = db.query(Domain).filter(Domain.id == domain_id).first()
+
+    if not domain:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Domain not found"
+        )
+
+    new_owner = db.query(User).filter(User.id == request.owner_id).first()
+
+    if not new_owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Target user not found"
+        )
+
+    domain.owner_id = new_owner.id
+    db.commit()
+    db.refresh(domain)
+
     return domain
 
 @router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)
