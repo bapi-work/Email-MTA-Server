@@ -6,8 +6,12 @@ from datetime import datetime
 
 # Auth Schemas
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(..., min_length=8)
+    # Accepts an email OR a username. Deliberately a plain string: strict
+    # EmailStr validation rejected addresses on special-use domains (e.g.
+    # *.local) that the profile page had already let users save, locking
+    # them out of their own account.
+    email: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=1, max_length=1024)
 
 class LoginResponse(BaseModel):
     access_token: str

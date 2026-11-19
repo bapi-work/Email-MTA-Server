@@ -90,15 +90,14 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                             autoComplete="off"
                         >
                             <Form.Item
-                                label="Email"
+                                label="Email or username"
                                 name="email"
                                 rules={[
-                                    { required: true, message: 'Please enter your email' },
-                                    { type: 'email', message: 'Invalid email format' }
+                                    { required: true, message: 'Please enter your email or username' }
                                 ]}
                             >
                                 <Input
-                                    placeholder="admin@yourdomain.com"
+                                    placeholder="you@example.com or username"
                                     prefix={<MailOutlined />}
                                     size="large"
                                 />
@@ -108,8 +107,7 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                                 label="Password"
                                 name="password"
                                 rules={[
-                                    { required: true, message: 'Please enter your password' },
-                                    { min: 8, message: 'Password must be at least 8 characters' }
+                                    { required: true, message: 'Please enter your password' }
                                 ]}
                             >
                                 <Input.Password

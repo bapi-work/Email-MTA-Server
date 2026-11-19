@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime, timedelta
+import re
 import jwt
 import bcrypt
 from database import get_db, User, UserRole
@@ -15,6 +17,27 @@ router = APIRouter()
 def hash_password(password: str) -> str:
     """Hash password using bcrypt"""
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,255}$")
+
+
+def _validate_email(value: str) -> str:
+    value = (value or "").strip()
+    if not _EMAIL_RE.match(value) or len(value) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enter a valid email address")
+    return value
+
+
+def _validate_username(value: str) -> str:
+    value = (value or "").strip()
+    if not _USERNAME_RE.match(value):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username must be 3+ characters: letters, digits, '.', '_' or '-'"
+        )
+    return value
+
 
 def verify_password(password: str, hashed: str) -> bool:
     """Verify password against hash"""
@@ -61,13 +84,16 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
 async def login(request: LoginRequest, db: Session = Depends(get_db)):
     """Login user and return access token"""
     
-    # Find user by email
-    user = db.query(User).filter(User.email == request.email).first()
-    
-    if not user or not verify_password(request.password, user.hashed_password):
+    # Find user by email (case-insensitive) or by exact username
+    identifier = request.email.strip()
+    user = db.query(User).filter(
+        (func.lower(User.email) == identifier.lower()) | (User.username == identifier)
+    ).first()
+
+    if not user or not user.hashed_password or not verify_password(request.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid email/username or password"
         )
     
     if not user.is_active:
@@ -273,16 +299,17 @@ async def change_email(
         )
     
     new_email = request_data.get("new_email")
-    
+
     if not new_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New email is required"
         )
-    
-    # Check if email already exists
+    new_email = _validate_email(new_email)
+
+    # Check if email already exists (case-insensitive — login matches that way)
     existing_user = db.query(User).filter(
-        (User.email == new_email) & (User.id != user.id)
+        (func.lower(User.email) == new_email.lower()) & (User.id != user.id)
     ).first()
     
     if existing_user:
@@ -321,9 +348,12 @@ async def update_profile(
     new_username = request_data.get("username")
     full_name = request_data.get("full_name")
 
+    # Validate BEFORE saving: an invalid email here used to be stored as-is,
+    # after which the account could never log in again.
     if new_email and new_email != user.email:
+        new_email = _validate_email(new_email)
         existing = db.query(User).filter(
-            (User.email == new_email) & (User.id != user.id)
+            (func.lower(User.email) == new_email.lower()) & (User.id != user.id)
         ).first()
         if existing:
             raise HTTPException(
@@ -333,6 +363,7 @@ async def update_profile(
         user.email = new_email
 
     if new_username and new_username != user.username:
+        new_username = _validate_username(new_username)
         existing = db.query(User).filter(
             (User.username == new_username) & (User.id != user.id)
         ).first()
