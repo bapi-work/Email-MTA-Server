@@ -14,7 +14,6 @@ import {
     MenuUnfoldOutlined,
     ClockCircleOutlined,
     StopOutlined,
-    ApiOutlined,
     SafetyOutlined
 } from '@ant-design/icons';
 import axios from 'axios';

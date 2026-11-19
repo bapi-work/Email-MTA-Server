@@ -4,7 +4,7 @@ import {
     Typography, List, Space, Select, Tabs, Tooltip, Table, Empty
 } from 'antd';
 import {
-    ReloadOutlined, SafetyOutlined, WarningOutlined, CheckCircleOutlined,
+    ReloadOutlined, WarningOutlined, CheckCircleOutlined,
     CloseCircleOutlined, InfoCircleOutlined, RiseOutlined, FallOutlined,
     DashboardOutlined, BulbOutlined, GlobalOutlined
 } from '@ant-design/icons';

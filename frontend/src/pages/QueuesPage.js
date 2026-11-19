@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Card, Statistic, Table, message, Button, Spin, Space } from 'antd';
-import { MailOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 const QueuesPage = () => {

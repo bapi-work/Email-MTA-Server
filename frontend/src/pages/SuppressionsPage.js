@@ -4,9 +4,8 @@ import {
     message, Spin, Alert, Row, Col, Statistic, Tooltip, Badge, Popconfirm
 } from 'antd';
 import {
-    PlusOutlined, DeleteOutlined, SearchOutlined, DownloadOutlined,
-    UploadOutlined, MailOutlined, ExclamationCircleOutlined,
-    CheckCircleOutlined, StopOutlined, ReloadOutlined, InfoCircleOutlined
+    PlusOutlined, DeleteOutlined, SearchOutlined, MailOutlined,
+    ExclamationCircleOutlined, CheckCircleOutlined, StopOutlined, ReloadOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 
