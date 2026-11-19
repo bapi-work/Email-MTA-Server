@@ -34,10 +34,21 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
             navigate('/');
         } catch (error) {
             const status = error.response?.status;
-            if (status === 429 || status === 503) {
+            const data = error.response?.data || {};
+            // The backend returns {"error": "..."}; FastAPI validation errors
+            // return {"detail": [...]}. Show the real reason either way.
+            const serverMsg = typeof data.error === 'string' ? data.error
+                : typeof data.detail === 'string' ? data.detail
+                : Array.isArray(data.detail) ? 'Please enter a valid email and a password of at least 8 characters.'
+                : null;
+            if (status === 429) {
                 message.error('Too many login attempts. Please wait a moment and try again.');
+            } else if (!error.response) {
+                message.error('Cannot reach the server. Check your connection and try again.');
+            } else if (status >= 500) {
+                message.error('Server error — the backend may still be starting. Try again shortly.');
             } else {
-                message.error(error.response?.data?.detail || 'Login failed. Check your email and password.');
+                message.error(serverMsg || 'Login failed. Check your email and password.');
             }
         } finally {
             setLoading(false);
@@ -126,22 +137,6 @@ const LoginPage = ({ setIsAuthenticated, setUser }) => {
                                 </Button>
                             </Form.Item>
                         </Form>
-
-                        <div style={{
-                            marginTop: '24px',
-                            padding: '16px',
-                            background: '#f5f5f5',
-                            borderRadius: '4px',
-                            fontSize: '12px'
-                        }}>
-                            <p><strong>Default Admin Credentials:</strong></p>
-                            <p>Email: <strong>admin@yourdomain.com</strong></p>
-                            <p>Password: <strong>CloudMTA2026!</strong></p>
-                            <p style={{marginTop: '8px', fontSize: '11px', color: '#666'}}>
-                                Use the email above exactly as shown — it is not a placeholder.
-                                Change your password immediately after first login.
-                            </p>
-                        </div>
                     </Card>
                 </Col>
             </Row>

@@ -69,7 +69,7 @@ http://localhost
 
 **Login with default credentials:**
 - Email: `admin@yourdomain.com`
-- Password: `ChangeMe123!`
+- Password: the `ADMIN_PASSWORD` value from `.env` at first start (`CloudMTA2026!` if unset)
 
 > **Security:** Change the default password immediately after first login and before exposing the server to the internet.
 

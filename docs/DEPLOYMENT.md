@@ -50,7 +50,7 @@ Open your browser and navigate to:
 
 ```
 Email:    admin@yourdomain.com   ← use this literally, it is not a placeholder
-Password: ChangeMe123!
+Password: <ADMIN_PASSWORD from .env at first start — CloudMTA2026! if unset>
 ```
 
 > **Important:** The email `admin@yourdomain.com` is the exact login email stored in the database — it is not a variable you need to replace. Change the password (and optionally the email) immediately after first login via the admin portal Settings page.

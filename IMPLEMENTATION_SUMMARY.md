@@ -134,7 +134,7 @@ docker-compose up -d
 
 **Admin Portal**: http://localhost
 - Email: `admin@yourdomain.com`
-- Password: `ChangeMe123!` (change immediately after first login)
+- Password: the `ADMIN_PASSWORD` value from `.env` (change immediately after first login)
 
 **API Docs**: http://localhost/docs
 
