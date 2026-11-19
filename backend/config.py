@@ -5,6 +5,26 @@ from pydantic import field_validator
 from typing import List
 import os
 
+# Values that ship in this repository (compose defaults, docs, .env.example).
+# Anything on this list is public knowledge and must never run in production.
+_KNOWN_DEFAULT_SECRETS = {
+    "your-secret-key-change-this-in-production",
+    "your-secret-key-change-in-production",
+    "your-very-secure-secret-key-here",
+    "change-me",
+    "changeme",
+    "secret",
+}
+_KNOWN_DEFAULT_PASSWORDS = {
+    "CloudMTA2026!",
+    "Redis2026!",
+    "ChangeMe123!",
+    "Demo12345!",
+    "YOUR_SECURE_PASSWORD",
+    "YOUR_REDIS_PASSWORD",
+    "CHANGE_ME_to_a_strong_password",
+}
+
 class Settings(BaseSettings):
     # API Settings
     API_TITLE: str = "CloudMTA API"
@@ -82,6 +102,14 @@ class Settings(BaseSettings):
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "CloudMTA2026!")
 
+    # Deployment environment ("development" / "production")
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+
+    # Public self-service sign-up. Off by default: on an MTA, an open sign-up
+    # lets anyone create an account, generate SMTP credentials and send mail.
+    # Admins create accounts from the Users page instead.
+    ALLOW_REGISTRATION: bool = False
+
     # Features
     BULK_EMAIL_ENABLED: bool = True
     DOMAIN_MANAGEMENT_ENABLED: bool = True
@@ -103,6 +131,7 @@ class Settings(BaseSettings):
         "BULK_EMAIL_ENABLED",
         "DOMAIN_MANAGEMENT_ENABLED",
         "API_ACCESS_CONTROL_ENABLED",
+        "ALLOW_REGISTRATION",
         mode="before",
     )
     @classmethod
@@ -115,6 +144,29 @@ class Settings(BaseSettings):
             if normalized in {"0", "false", "no", "n", "off", "", "release", "prod", "production"}:
                 return False
         return value
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() in {"production", "prod"}
+
+    def insecure_settings(self) -> tuple:
+        """Return (fatal, warnings): names of security-relevant settings that
+        are still on a publicly known default value.
+
+        Only SECRET_KEY is fatal in production — anyone who knows it can mint
+        an admin JWT. The others are warnings: DB/Redis are not exposed on
+        the host in docker-compose.prod.yml, and ADMIN_PASSWORD only seeds
+        the first admin on an empty database."""
+        fatal, warnings = [], []
+        if self.SECRET_KEY in _KNOWN_DEFAULT_SECRETS or len(self.SECRET_KEY) < 32:
+            fatal.append("SECRET_KEY (must be a random value of 32+ characters)")
+        if not self.ADMIN_PASSWORD or self.ADMIN_PASSWORD in _KNOWN_DEFAULT_PASSWORDS:
+            warnings.append("ADMIN_PASSWORD")
+        if any(pw in self.DATABASE_URL for pw in _KNOWN_DEFAULT_PASSWORDS):
+            warnings.append("DB_PASSWORD")
+        if any(pw in self.REDIS_URL for pw in _KNOWN_DEFAULT_PASSWORDS):
+            warnings.append("REDIS_PASSWORD")
+        return fatal, warnings
 
     @property
     def cors_origins(self) -> List[str]:

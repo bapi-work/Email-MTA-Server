@@ -31,10 +31,9 @@ class HealthcheckService:
             }
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
-            health_status["services"]["database"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
+            # /health is unauthenticated — never echo exception text (it can
+            # contain hostnames, usernames or connection strings).
+            health_status["services"]["database"] = {"status": "unhealthy"}
             health_status["status"] = "unhealthy"
         
         # Check Redis
@@ -47,10 +46,7 @@ class HealthcheckService:
             }
         except Exception as e:
             logger.error(f"Redis health check failed: {e}")
-            health_status["services"]["redis"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
+            health_status["services"]["redis"] = {"status": "unhealthy"}
             health_status["status"] = "unhealthy"
         
         return health_status
@@ -73,6 +69,7 @@ class AuthenticationService:
             "sub": str(user_id),
             "email": email,
             "role": role,
+            "type": "access",
             "exp": expire
         }
         

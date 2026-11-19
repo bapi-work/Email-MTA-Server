@@ -66,6 +66,50 @@ class SendEmailRequest(BaseModel):
             raise ValueError("priority must be between 1 and 10")
         return v
 
+    # ── Header-injection guards ─────────────────────────────────────────
+    # Any CR/LF in a value that becomes a mail header lets the caller inject
+    # extra headers (Bcc:, From:, …) or a whole second message body.
+    @validator("subject", "configuration_set")
+    def no_newlines(cls, v):
+        if v is not None and _HEADER_UNSAFE.search(v):
+            raise ValueError("must not contain line breaks")
+        if v is not None and len(v) > 998:
+            raise ValueError("too long")
+        return v
+
+    @validator("cc", "bcc")
+    def validate_copy_recipients(cls, v):
+        for addr in v or []:
+            if not _EMAIL_RE.match(addr):
+                raise ValueError(f"Invalid email address: {addr}")
+        return v
+
+    @validator("reply_to")
+    def validate_reply_to(cls, v):
+        if v is not None and not _EMAIL_RE.match(v):
+            raise ValueError("Invalid reply_to address")
+        return v
+
+    @validator("headers")
+    def validate_headers(cls, v):
+        for name, value in (v or {}).items():
+            if not _HEADER_NAME_RE.match(str(name)):
+                raise ValueError(f"Invalid header name: {name!r}")
+            if str(name).lower() in _PROTECTED_HEADERS:
+                raise ValueError(f"Header {name!r} cannot be overridden")
+            if _HEADER_UNSAFE.search(str(value)):
+                raise ValueError(f"Header {name!r} must not contain line breaks")
+        return v
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_HEADER_UNSAFE = re.compile(r"[\r\n\x00]")
+_HEADER_NAME_RE = re.compile(r"^[!-9;-~]{1,76}$")  # RFC 5322 ftext, no ':'
+_PROTECTED_HEADERS = {
+    "from", "sender", "to", "cc", "bcc", "subject", "return-path",
+    "message-id", "dkim-signature", "received", "content-transfer-encoding",
+}
+
 
 class SendEmailResponse(BaseModel):
     message_ids: List[str]
@@ -206,6 +250,10 @@ async def get_delivery_logs(
     """
     Delivery log viewer — paginated list of recent messages with SMTP status.
     """
+    # Clamp paging so a single request can't pull the whole table into memory.
+    page = max(1, page)
+    page_size = max(1, min(page_size, 200))
+
     query = db.query(Message).filter(Message.user_id == current_user.id)
 
     if status_filter:

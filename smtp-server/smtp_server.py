@@ -6,6 +6,7 @@ import signal
 import ssl
 import os
 import email
+import email.utils
 import redis
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -35,6 +36,8 @@ SSL_CERT_FILE = os.getenv("SSL_CERT_FILE", "/config/ssl/cert.pem")
 SSL_KEY_FILE = os.getenv("SSL_KEY_FILE", "/config/ssl/key.pem")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 RETRY_INTERVAL_SECONDS = int(os.getenv("SMTP_RETRY_INTERVAL_SECONDS", 60))
+AUTH_MAX_FAILURES = int(os.getenv("SMTP_AUTH_MAX_FAILURES", 10))
+AUTH_FAILURE_WINDOW = int(os.getenv("SMTP_AUTH_FAILURE_WINDOW", 900))
 
 
 class DatabaseManager:
@@ -109,14 +112,14 @@ class DatabaseManager:
 
     def get_domain_by_name(self, domain_name):
         """Get domain by name"""
-        query = "SELECT * FROM domains WHERE domain_name = %s AND status = 'active'"
+        query = "SELECT * FROM domains WHERE lower(domain_name) = lower(%s) AND status = 'active'"
         result = self.execute(query, (domain_name,))
         return result[0] if result else None
 
     def get_owned_active_domain(self, owner_id, domain_name):
         """Get a domain by name, but only if it's active and owned by owner_id.
         Used to verify a sender is allowed to relay mail as this domain."""
-        query = "SELECT * FROM domains WHERE domain_name = %s AND owner_id = %s AND status = 'active'"
+        query = "SELECT * FROM domains WHERE lower(domain_name) = lower(%s) AND owner_id = %s AND status = 'active'"
         result = self.execute(query, (domain_name, owner_id))
         return result[0] if result else None
 
@@ -266,81 +269,116 @@ class SMTPHandler:
         except Exception as e:
             logger.error(f"Redis connection failed: {e}")
 
+    async def handle_RCPT(self, server, session, envelope, address, rcpt_options):
+        """Accept a recipient only if we host its domain, or the session is
+        authenticated (outbound relay). Rejecting here, per recipient, closes
+        the old hole where only rcpt_tos[0] was checked and any further
+        recipients were silently accepted (then dropped)."""
+        if '@' not in address:
+            return "501 5.1.3 Bad recipient address syntax"
+        recipient_domain = address.rsplit('@', 1)[1].lower()
+        if self.db.get_domain_by_name(recipient_domain):
+            envelope.rcpt_tos.append(address)
+            return "250 OK"
+        if getattr(server, 'authenticated_user', None):
+            envelope.rcpt_tos.append(address)
+            return "250 OK"
+        logger.warning(f"Rejected unauthenticated relay attempt to {address}")
+        return "530 5.7.0 Authentication required for relay"
+
     async def handle_DATA(self, server, session, envelope):
-        """Handle email data — routes to local inbound delivery for domains
-        we host, or authenticated outbound relay for everything else."""
+        """Handle email data — routes each recipient to local inbound delivery
+        (domains we host) or authenticated outbound relay (everything else)."""
         try:
             msg = email.message_from_bytes(envelope.content)
-            to_email = envelope.rcpt_tos[0]
-            from_email = envelope.mail_from
-            recipient_domain = to_email.split('@')[1]
+            from_email = envelope.mail_from or ''
+            authenticated_user = getattr(server, 'authenticated_user', None)
 
-            local_domain = self.db.get_domain_by_name(recipient_domain)
-            if local_domain:
-                # Inbound delivery to a domain we host
+            # Outbound relay requires the sender to own an active domain that
+            # matches BOTH the envelope MAIL FROM and the visible From: header
+            # (otherwise a tenant could relay "From: ceo@someone-else.com").
+            sender_domain = None
+            if authenticated_user:
+                sender_domain_name = from_email.rsplit('@', 1)[-1].lower() if '@' in from_email else ''
+                sender_domain = self.db.get_owned_active_domain(authenticated_user['id'], sender_domain_name)
+                header_from = email.utils.parseaddr(msg.get('From', ''))[1]
+                header_domain = header_from.rsplit('@', 1)[-1].lower() if '@' in header_from else ''
+                if sender_domain and header_domain and header_domain != sender_domain_name:
+                    if not self.db.get_owned_active_domain(authenticated_user['id'], header_domain):
+                        logger.warning(
+                            f"Rejected relay: From: header domain {header_domain} not owned by "
+                            f"user {authenticated_user.get('username')}"
+                        )
+                        return "550 5.7.1 From: header domain not verified for this account"
+
+            failures = []
+            for to_email in envelope.rcpt_tos:
+                recipient_domain = to_email.rsplit('@', 1)[1].lower()
+                local_domain = self.db.get_domain_by_name(recipient_domain)
+
+                if local_domain:
+                    # Inbound delivery to a domain we host
+                    message_id = self.db.create_message(
+                        user_id=local_domain.get('owner_id'),
+                        domain_id=local_domain.get('id'),
+                        from_email=from_email,
+                        to_email=to_email,
+                        subject=msg.get('Subject', ''),
+                        body=msg.get_payload(),
+                        headers=dict(msg.items())
+                    )
+                    self._queue_message(message_id, local_domain.get('id'), from_email, to_email, msg)
+                    logger.info(f"Message {message_id} queued for local delivery to {to_email}")
+                    continue
+
+                # Outbound relay (handle_RCPT already required AUTH for this)
+                if not authenticated_user:
+                    return "530 5.7.0 Authentication required for relay"
+                if not sender_domain:
+                    logger.warning(
+                        f"Rejected relay: user {authenticated_user.get('username')} "
+                        f"does not own a verified domain matching MAIL FROM {from_email}"
+                    )
+                    return "550 5.7.1 Sender domain not verified for this account"
+
                 message_id = self.db.create_message(
-                    user_id=local_domain.get('owner_id'),
-                    domain_id=local_domain.get('id'),
+                    user_id=authenticated_user['id'],
+                    domain_id=sender_domain.get('id'),
                     from_email=from_email,
                     to_email=to_email,
                     subject=msg.get('Subject', ''),
                     body=msg.get_payload(),
                     headers=dict(msg.items())
                 )
-                self._queue_message(message_id, local_domain.get('id'), from_email, to_email, msg)
-                logger.info(f"Message {message_id} queued for local delivery to {to_email}")
-                return "250 OK"
+                self.db.update_message_status(message_id, 'sending')
 
-            # Not a locally hosted domain — this is an outbound relay request.
-            # Require AUTH, and require the authenticated user to own an
-            # active, verified sender domain matching MAIL FROM (anti-spoofing).
-            authenticated_user = getattr(server, 'authenticated_user', None)
-            if not authenticated_user:
-                logger.warning(f"Rejected unauthenticated relay attempt to {to_email}")
-                return "530 Authentication required for relay"
-
-            sender_domain_name = from_email.split('@')[-1] if '@' in from_email else ''
-            sender_domain = self.db.get_owned_active_domain(authenticated_user['id'], sender_domain_name)
-            if not sender_domain:
-                logger.warning(
-                    f"Rejected relay: user {authenticated_user.get('username')} "
-                    f"does not own verified domain {sender_domain_name}"
+                loop = asyncio.get_event_loop()
+                success, code, response_message = await loop.run_in_executor(
+                    None, _relay_to_internet, from_email, to_email, envelope.content
                 )
-                return "550 Sender domain not verified for this account"
 
-            message_id = self.db.create_message(
-                user_id=authenticated_user['id'],
-                domain_id=sender_domain.get('id'),
-                from_email=from_email,
-                to_email=to_email,
-                subject=msg.get('Subject', ''),
-                body=msg.get_payload(),
-                headers=dict(msg.items())
-            )
-            self.db.update_message_status(message_id, 'sending')
+                self.db.update_message_status(
+                    message_id,
+                    'sent' if success else 'deferred',
+                    response_code=code,
+                    response_message=response_message
+                )
 
-            loop = asyncio.get_event_loop()
-            success, code, response_message = await loop.run_in_executor(
-                None, _relay_to_internet, from_email, to_email, envelope.content
-            )
+                if success:
+                    logger.info(f"Message {message_id} relayed to {to_email}: {response_message}")
+                else:
+                    # Stored as 'deferred' — the retry worker owns redelivery,
+                    # so the client must not resend (that would duplicate mail).
+                    logger.warning(f"Message {message_id} relay failed to {to_email}: {response_message}")
+                    failures.append(to_email)
 
-            self.db.update_message_status(
-                message_id,
-                'sent' if success else 'deferred',
-                response_code=code,
-                response_message=response_message
-            )
-
-            if success:
-                logger.info(f"Message {message_id} relayed to {to_email}: {response_message}")
-                return "250 OK"
-
-            logger.warning(f"Message {message_id} relay failed to {to_email}: {response_message}")
-            return f"{code} {response_message}"
+            if failures:
+                logger.info(f"{len(failures)} recipient(s) deferred for retry")
+            return "250 OK"
 
         except Exception as e:
             logger.error(f"Error handling message: {e}")
-            return "500 Internal server error"
+            return "451 4.3.0 Temporary server error"
 
     def _queue_message(self, message_id, domain_id, from_email, to_email, message):
         """Queue message for delivery"""
@@ -364,16 +402,41 @@ def authenticate_smtp(server, session, envelope, mechanism, auth_data):
     if mechanism not in ('LOGIN', 'PLAIN'):
         return AuthResult(success=False, handled=False)
 
-    username = auth_data.login.decode()
-    password = auth_data.password.decode()
+    # Brute-force throttle: per client IP, AUTH_MAX_FAILURES failed attempts
+    # within AUTH_FAILURE_WINDOW seconds locks that IP out of AUTH.
+    redis_client = getattr(server.event_handler, 'redis_client', None)
+    peer_ip = session.peer[0] if session and session.peer else 'unknown'
+    fail_key = f"smtp_authfail:{peer_ip}"
+    try:
+        if redis_client and int(redis_client.get(fail_key) or 0) >= AUTH_MAX_FAILURES:
+            logger.warning(f"SMTP AUTH locked out for {peer_ip}")
+            return AuthResult(success=False, message='454 4.7.0 Too many failed attempts, try again later')
+    except Exception:
+        pass
+
+    def _fail():
+        try:
+            if redis_client:
+                count = redis_client.incr(fail_key)
+                if count == 1:
+                    redis_client.expire(fail_key, AUTH_FAILURE_WINDOW)
+        except Exception:
+            pass
+        return AuthResult(success=False, message='535 5.7.8 Authentication credentials invalid')
+
+    try:
+        username = auth_data.login.decode()
+        password = auth_data.password.decode()
+    except (AttributeError, UnicodeDecodeError):
+        return _fail()
 
     user = server.db.get_user_by_username(username)
-    if not user or not user.get('smtp_password'):
-        return AuthResult(success=False, message='535 5.7.8 Authentication credentials invalid')
+    if not user or not user.get('smtp_password') or not user.get('is_active'):
+        return _fail()
 
     import bcrypt
     if not bcrypt.checkpw(password.encode(), user['smtp_password'].encode()):
-        return AuthResult(success=False, message='535 5.7.8 Authentication credentials invalid')
+        return _fail()
 
     server.authenticated_user = user
     return AuthResult(success=True)

@@ -686,6 +686,26 @@ async def delete_routing_rule(
 VALID_WEBHOOK_EVENTS = {"bounce", "complaint", "delivery", "open", "click", "unsubscribe", "deferred"}
 
 
+def _validate_webhook_url(url: str) -> str:
+    """Reject webhook targets that resolve to internal addresses (SSRF):
+    loopback, RFC1918, link-local (cloud metadata 169.254.169.254), and the
+    Docker network where postgres/redis/backend live."""
+    from urllib.parse import urlparse
+    url = (url or "").strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Valid http(s) URL is required")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Webhook host does not resolve")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global:
+            raise HTTPException(status_code=400, detail="Webhook URL must point to a public address")
+    return url
+
+
 @router.get("/webhooks")
 async def list_webhooks(
     current_user: User = Depends(is_admin),
@@ -722,8 +742,7 @@ async def create_webhook(
     url = (body.get("url") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Webhook name is required")
-    if not url or not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Valid HTTPS URL is required")
+    url = _validate_webhook_url(url)
 
     events = [e for e in (body.get("events") or []) if e in VALID_WEBHOOK_EVENTS]
     if not events:
@@ -764,10 +783,7 @@ async def update_webhook(
     if "name" in body:
         hook.name = body["name"]
     if "url" in body:
-        url = (body["url"] or "").strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
-            raise HTTPException(status_code=400, detail="Valid URL required")
-        hook.url = url
+        hook.url = _validate_webhook_url(body["url"])
     if "events" in body:
         hook.events = [e for e in body["events"] if e in VALID_WEBHOOK_EVENTS]
     if "is_active" in body:
@@ -816,6 +832,9 @@ async def test_webhook(
         "message": "CloudMTA webhook test ping",
         "timestamp": str(__import__('datetime').datetime.utcnow().isoformat()),
     }).encode()
+
+    # Re-check at send time (DNS may have changed since the hook was saved)
+    _validate_webhook_url(hook.url)
 
     try:
         req = urlreq.Request(

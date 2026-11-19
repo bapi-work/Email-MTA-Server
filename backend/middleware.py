@@ -1,6 +1,7 @@
 """JWT and authentication middleware"""
 
 from fastapi import Request
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 import jwt
@@ -9,31 +10,42 @@ import time
 import redis
 from datetime import datetime
 from config import settings
+from database import SessionLocal, User
 
 logger = logging.getLogger(__name__)
 
 class JWTMiddleware(BaseHTTPMiddleware):
     """Middleware to validate JWT tokens on protected routes"""
     
-    # Public routes that don't require authentication
+    # Public routes that don't require authentication. Matched EXACTLY (after
+    # stripping a trailing slash) — the old prefix match let any path that
+    # merely started with "/health" or "/docs" bypass authentication.
     PUBLIC_ROUTES = {
+        "/",
         "/ping",
         "/health",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
         "/api/v1/auth/login",
         "/api/v1/auth/register",
         "/api/v1/auth/refresh",
     }
-    
+    # Interactive API docs are only reachable when DEBUG is on (see main.py).
+    DOCS_ROUTES = {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
+
+    @staticmethod
+    def _load_user_status(user_id: int):
+        db = SessionLocal()
+        try:
+            return db.query(User.id, User.is_active).filter(User.id == user_id).first()
+        finally:
+            db.close()
+
     async def dispatch(self, request: Request, call_next):
         # Allow CORS preflight requests through without auth
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Check if route requires authentication
-        if any(request.url.path.startswith(route) for route in self.PUBLIC_ROUTES):
+        path = request.url.path.rstrip("/") or "/"
+        if path in self.PUBLIC_ROUTES or (settings.DEBUG and path in self.DOCS_ROUTES):
             return await call_next(request)
         
         # Get token from header
@@ -59,8 +71,26 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 algorithms=[settings.ALGORITHM]
             )
             
+            # Refresh tokens (7-day lifetime) must never work as access tokens.
+            if payload.get("type") != "access":
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Invalid token type"}
+                )
+
+            user_id = int(payload.get("sub"))
+
+            # Disabled / deleted accounts lose access immediately rather than
+            # keeping it until their token expires.
+            user = await run_in_threadpool(self._load_user_status, user_id)
+            if not user or not user.is_active:
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Account is disabled or no longer exists"}
+                )
+
             # Store user info in request state
-            request.state.user_id = int(payload.get("sub"))
+            request.state.user_id = user_id
             request.state.user_email = payload.get("email")
             request.state.user_role = payload.get("role")
             
@@ -74,7 +104,7 @@ class JWTMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"error": "Invalid token"}
             )
-        except ValueError:
+        except (ValueError, TypeError):
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid authorization header"}

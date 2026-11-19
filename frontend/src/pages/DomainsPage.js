@@ -25,7 +25,10 @@ const DNS_HELP = {
         desc: 'DKIM adds a cryptographic signature to outgoing emails so recipients can verify authenticity.',
         type: 'TXT',
         nameTemplate: (domain, selector = 'default') => `${selector}._domainkey.${domain}`,
-        valueTemplate: (pubKey) => pubKey ? `v=DKIM1; k=rsa; p=${pubKey}` : 'Generated after domain creation'
+        // DNS needs only the base64 body of the PEM key (no BEGIN/END lines or newlines)
+        valueTemplate: (pubKey) => pubKey
+            ? `v=DKIM1; k=rsa; p=${pubKey.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')}`
+            : 'Generated after domain creation'
     },
     dmarc: {
         title: 'DMARC Record (TXT) — Optional',
@@ -226,10 +229,10 @@ const DomainsPage = ({ user }) => {
             const res = await axios.get(`/api/v1/domains/${selectedDomain.id}/verify-dns`);
             setVerifyResult(res.data);
             fetchDomains();
-            if (res.data?.spf?.verified) {
-                message.success('SPF verified — domain is active! DKIM and DMARC are optional but recommended.');
+            if (res.data?.ownership_verified) {
+                message.success('SPF and DKIM verified — domain is active! DMARC is optional but recommended.');
             } else {
-                message.warning('SPF not yet verified. DNS propagation can take up to 48 hours after adding the TXT record.');
+                message.warning('SPF and DKIM records are both required. DNS propagation can take up to 48 hours after adding the TXT records.');
             }
         } catch (err) {
             message.error(err.response?.data?.detail || 'DNS verification failed');
@@ -567,7 +570,7 @@ const DomainsPage = ({ user }) => {
                         }}>
                             <span style={{ fontSize: 13, fontWeight: 600, color: '#64748b', marginRight: 4 }}>Verification Results:</span>
                             <StatusBadge verified={verifyResult?.spf?.verified} label="SPF (Required)" />
-                            <StatusBadge verified={verifyResult?.dkim?.verified} label="DKIM (Optional)" />
+                            <StatusBadge verified={verifyResult?.dkim?.verified} label="DKIM (Required)" />
                             <StatusBadge verified={verifyResult?.dmarc?.verified} label="DMARC (Optional)" />
                         </div>
                     </div>
@@ -576,7 +579,7 @@ const DomainsPage = ({ user }) => {
                 <Alert
                     type="info"
                     showIcon
-                    message={<span><strong>SPF is required</strong> to verify your domain and start sending. DKIM and DMARC are optional but strongly recommended for deliverability.</span>}
+                    message={<span><strong>SPF and DKIM are required</strong> to verify your domain and start sending. The DKIM key is unique to this domain, so publishing it proves you control its DNS. DMARC is optional but strongly recommended.</span>}
                     style={{ marginBottom: 12 }}
                 />
                 <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>

@@ -76,11 +76,45 @@ def ensure_default_admin():
     finally:
         db.close()
 
+def disable_demo_account():
+    """Older database/init.sql seeded a 'demo' user whose password
+    (Demo12345!) is published in this repo. Disable it in production so a
+    long-lived database doesn't keep a known-credential login around."""
+    if not settings.is_production:
+        return
+    db = SessionLocal()
+    try:
+        demo = db.query(User).filter(User.email == "demo@cloudmta.local", User.is_active.is_(True)).first()
+        if demo and bcrypt.checkpw(b"Demo12345!", demo.hashed_password.encode()):
+            demo.is_active = False
+            db.commit()
+            logger.warning("Disabled seeded 'demo' account (published default password)")
+    except Exception as e:
+        logger.error(f"Demo account check failed: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     logger.info("CloudMTA Backend Starting...")
+
+    fatal, warnings = settings.insecure_settings()
+    if warnings:
+        logger.warning(
+            "Default value(s) still in use: " + ", ".join(warnings)
+            + " — change them in .env before exposing this server."
+        )
+    if fatal:
+        msg = "Insecure default value(s) in use: " + ", ".join(fatal)
+        if settings.is_production:
+            # Refuse to serve: a known SECRET_KEY lets anyone forge admin JWTs.
+            logger.critical(msg + " — refusing to start with ENVIRONMENT=production. Set it in .env.")
+            raise RuntimeError(msg)
+        logger.warning(msg + " — acceptable for local development only.")
+
     for attempt in range(1, 11):
         try:
             Base.metadata.create_all(bind=engine)
@@ -95,6 +129,7 @@ async def lifespan(app: FastAPI):
 
     ensure_schema_migrations()
     ensure_default_admin()
+    disable_demo_account()
 
     yield
     
@@ -106,7 +141,11 @@ app = FastAPI(
     title="CloudMTA API",
     description="Professional Email MTA Server API",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    # Don't publish the full API map to the internet in production.
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 # Add CORS middleware

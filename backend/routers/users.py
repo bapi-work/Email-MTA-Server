@@ -166,10 +166,25 @@ async def update_user(
             )
     
     # Update allowed fields
-    allowed_fields = ["full_name", "rate_limit_per_second", "username", "email"]
+    # rate_limit_per_second is a sending quota — only an admin may change it,
+    # otherwise any user could lift their own throttle.
+    allowed_fields = ["full_name", "username", "email"]
     if current_user.role == UserRole.ADMIN:
-        allowed_fields.extend(["is_active", "role"])
-    
+        allowed_fields.extend(["is_active", "role", "rate_limit_per_second"])
+
+    if "role" in update_data and update_data["role"] not in {r.value for r in UserRole}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
+
+    if user.id == current_user.id and (
+        update_data.get("is_active") is False
+        or ("role" in update_data and update_data["role"] != UserRole.ADMIN.value
+            and current_user.role == UserRole.ADMIN)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot disable or demote your own account"
+        )
+
     for field, value in update_data.items():
         if field in allowed_fields:
             setattr(user, field, value)

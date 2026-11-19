@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+import re
 import dns.resolver
 from database import get_db, Domain, User, UserRole, DomainStatus
 from schemas import DomainCreate, DomainUpdate, DomainResponse, DomainDetailResponse, DomainOwnerAssign
@@ -10,6 +11,32 @@ from services import SPFService, DKIMService, DMARCService
 from config import settings
 
 router = APIRouter()
+
+_DOMAIN_RE = re.compile(r"^(?=.{4,253}$)(?!-)([a-z0-9-]{1,63}(?<!-)\.)+[a-z]{2,63}$")
+
+
+def _normalize_domain_name(name: str) -> str:
+    name = (name or "").strip().lower().rstrip(".")
+    if not _DOMAIN_RE.match(name):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid domain name")
+    return name
+
+
+def _dkim_key_body(pem: str) -> str:
+    """Base64 body of a PEM public key — the value that goes after p= in DNS."""
+    if not pem:
+        return ""
+    lines = [l.strip() for l in pem.strip().splitlines() if l.strip() and not l.startswith("-----")]
+    return "".join(lines)
+
+
+def _dkim_txt_key(txt: str) -> str:
+    for part in txt.split(";"):
+        key, _, value = part.strip().partition("=")
+        if key.strip() == "p":
+            return re.sub(r"\s+", "", value)
+    return ""
+
 
 def get_current_user(request: Request, db: Session = Depends(get_db)):
     """Get current authenticated user"""
@@ -39,9 +66,13 @@ async def create_domain(
 ):
     """Create a new domain"""
 
+    # Normalise so "Example.COM" and "example.com" can't be registered twice
+    # by different tenants (SMTP lookups compare lowercase names).
+    request.domain_name = _normalize_domain_name(request.domain_name)
+
     # Check if domain already exists
     existing = db.query(Domain).filter(
-        Domain.domain_name == request.domain_name
+        func.lower(Domain.domain_name) == request.domain_name
     ).first()
 
     if existing:
@@ -150,8 +181,25 @@ async def update_domain(
             detail="You don't have access to this domain"
         )
     
-    # Update allowed fields
-    for field, value in request.dict(exclude_unset=True).items():
+    # status and sending limits are admin-controlled: letting an owner set
+    # status="active" would skip DNS verification entirely (the SMTP relay
+    # trusts status='active'), and raising limits would skip throttling.
+    ADMIN_ONLY_FIELDS = {"status", "rate_limit_per_second", "daily_limit"}
+    updates = request.dict(exclude_unset=True)
+    if current_user.role != UserRole.ADMIN:
+        forbidden = ADMIN_ONLY_FIELDS.intersection(k for k, v in updates.items() if v is not None)
+        if forbidden:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Only admin can change: {', '.join(sorted(forbidden))}"
+            )
+
+    if updates.get("status") is not None:
+        if updates["status"] not in {s.value for s in DomainStatus}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid domain status")
+        domain.is_verified = updates["status"] == DomainStatus.ACTIVE.value
+
+    for field, value in updates.items():
         if value is not None:
             setattr(domain, field, value)
     
@@ -268,20 +316,28 @@ async def verify_dns_records(
         except Exception:
             pass
 
-        # Mark domain active as soon as SPF is verified (DKIM and DMARC are optional)
-        if verification_status["spf"]["verified"]:
-            domain.status = DomainStatus.ACTIVE
-            domain.is_verified = True
-
-        # Check DKIM (optional)
-        if domain.dkim_public_key:
-            dkim_host = f"{domain.dkim_selector}._domainkey.{domain.domain_name}"
+        # Check DKIM — the TXT record must contain the exact public key we
+        # generated for THIS domain. That key is unique, so publishing it is
+        # proof the requester controls the domain's DNS. (An SPF record alone
+        # proves nothing: gmail.com has one, so anyone could "verify" it.)
+        expected_key = _dkim_key_body(domain.dkim_public_key)
+        if expected_key:
+            dkim_host = f"{domain.dkim_selector or 'default'}._domainkey.{domain.domain_name}"
             try:
                 answers = dns.resolver.resolve(dkim_host, 'TXT')
-                if answers:
-                    verification_status["dkim"]["verified"] = True
+                for rdata in answers:
+                    txt = b"".join(rdata.strings).decode(errors="ignore")
+                    if _dkim_txt_key(txt) == expected_key:
+                        verification_status["dkim"]["verified"] = True
+                        break
             except Exception:
                 pass
+
+        # Domain becomes active only when SPF exists AND the DKIM key matches.
+        if verification_status["spf"]["verified"] and verification_status["dkim"]["verified"]:
+            domain.status = DomainStatus.ACTIVE
+            domain.is_verified = True
+        verification_status["ownership_verified"] = bool(domain.is_verified)
 
         # Check DMARC (optional)
         try:
@@ -299,10 +355,10 @@ async def verify_dns_records(
         db.commit()
         return verification_status
 
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"DNS verification failed: {str(e)}"
+            detail="DNS verification failed"
         )
 
 @router.post("/{domain_id}/generate-spf")

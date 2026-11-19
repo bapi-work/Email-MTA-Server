@@ -118,7 +118,8 @@ Or use the admin portal:
 3. Fill in email, password, full name
 4. Click Create
 
-**Via API:**
+**Via API** (only works when `ALLOW_REGISTRATION=true` in `.env` — it is off by
+default; admins can instead `POST /api/v1/users/` with a bearer token):
 ```bash
 curl -X POST http://localhost/api/v1/auth/register \
   -H "Content-Type: application/json" \

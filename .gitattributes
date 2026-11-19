@@ -1,0 +1,8 @@
+# Shell scripts and container config run inside Linux containers — they must
+# keep LF line endings even when checked out on Windows (a CRLF in a shebang
+# script fails with "/bin/sh^M: not found").
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.conf          text eol=lf
+*.sql           text eol=lf
+*.yml           text eol=lf

@@ -22,8 +22,14 @@ def verify_password(password: str, hashed: str) -> bool:
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Register a new user"""
-    
+    """Register a new user (only when ALLOW_REGISTRATION=true)"""
+
+    if not settings.ALLOW_REGISTRATION:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-registration is disabled. Ask an administrator for an account."
+        )
+
     # Check if user already exists
     existing_user = db.query(User).filter(
         (User.email == request.email) | (User.username == request.username)
@@ -124,11 +130,11 @@ async def refresh_token(request: dict, db: Session = Depends(get_db)):
         
         user_id = payload.get("sub")
         user = db.query(User).filter(User.id == user_id).first()
-        
-        if not user:
+
+        if not user or not user.is_active:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
             )
         
         # Generate new access token

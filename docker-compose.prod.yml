@@ -24,7 +24,12 @@ services:
     environment:
       DEBUG: "false"
       LOG_LEVEL: "WARNING"
+      ENVIRONMENT: "production"
     ports: !reset []    # don't expose backend port directly in production
+    # Run the code baked into the image, not a bind-mount of the host checkout
+    # (the dev bind-mount lets any file change on the host go live instantly).
+    volumes: !override
+      - ./config:/config:ro
     deploy:
       resources:
         limits:
@@ -76,6 +81,16 @@ services:
   # ─── SMTP server constraints ─────────────────────────────────────────
   smtp-server:
     restart: unless-stopped
+    # Run the code baked into the image, not a bind-mount of the host checkout.
+    volumes: !override
+      - ./config:/config:ro
+      - smtp_logs:/var/log/mailserver
+    # Mail ports only — the :9000 health endpoint stays internal (the
+    # container healthcheck reaches it on localhost).
+    ports: !override
+      - "${SMTP_PORT:-25}:${SMTP_PORT:-25}"
+      - "${SMTP_TLS_PORT:-587}:${SMTP_TLS_PORT:-587}"
+      - "${SMTP_SSL_PORT:-465}:${SMTP_SSL_PORT:-465}"
     deploy:
       resources:
         limits:

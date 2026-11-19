@@ -7,15 +7,8 @@
 -- sync with .env. It only seeds when no admin exists yet, so it never
 -- overwrites a password that was changed after first deployment.
 
--- Create a demo user
--- Password: Demo12345!
-INSERT INTO users (username, email, hashed_password, role, full_name, is_active, rate_limit_per_second)
-VALUES (
-    'demo',
-    'demo@cloudmta.local',
-    '$2b$12$QzATqvxZDgBVoci1Lzcyce.tP71u.TQ9yb74NRfq3d8NCNqpLS6LW',
-    'user',
-    'Demo User',
-    TRUE,
-    100
-) ON CONFLICT (email) DO NOTHING;
+-- NOTE: a 'demo' user with a published password used to be seeded here.
+-- It was removed for security: a known-credential account on a mail server
+-- can be used to send mail. Create users from the admin portal instead.
+-- (On existing production databases the backend disables that account at
+-- startup — see backend/main.py: disable_demo_account.)
