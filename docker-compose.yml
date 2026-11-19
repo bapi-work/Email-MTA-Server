@@ -14,7 +14,12 @@ services:
     ports:
       - "5432:5432"    # expose locally for dev; remove in docker-compose.prod.yml
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} && psql -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} -c 'SELECT 1 FROM users LIMIT 1' -q --no-align --tuples-only 2>/dev/null | grep -q 1"]
+      # Healthy once the server accepts TCP connections (the temporary init
+      # server is socket-only) AND schema.sql has created the users table.
+      # Must not require any ROWS: the admin user is seeded by the backend,
+      # which itself waits for this check — requiring a row deadlocks a
+      # fresh database.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} && psql -h 127.0.0.1 -U ${DB_USER:-cloudmta} -d ${DB_NAME:-cloudmta_db} -tAc \"SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'users'\" 2>/dev/null | grep -q 1"]
       interval: 10s
       timeout: 10s
       retries: 10
