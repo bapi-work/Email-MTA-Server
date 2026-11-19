@@ -11,7 +11,7 @@ import {
     SettingOutlined, DatabaseOutlined, CloudOutlined, ApiOutlined,
     WarningOutlined, LoadingOutlined, CopyOutlined, ReloadOutlined,
     MailOutlined, LockOutlined, EyeOutlined, LinkOutlined, BarChartOutlined,
-    FireOutlined, AimOutlined, ExperimentOutlined, AppstoreOutlined,
+    AimOutlined, ExperimentOutlined, AppstoreOutlined,
     RocketOutlined, EditOutlined, PauseCircleOutlined, PlayCircleOutlined,
     ArrowRightOutlined
 } from '@ant-design/icons';
